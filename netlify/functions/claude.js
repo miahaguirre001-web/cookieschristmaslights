@@ -7,7 +7,7 @@ exports.handler = async (event) => {
   const denied = accessGate(event);
   if (denied) return denied;
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return json(503, { error: "ANTHROPIC_API_KEY not configured" });
+  if (!key) return json(503, { error: "ANTHROPIC_API_KEY not configured", configError: true });
 
   let body;
   try { body = JSON.parse(event.body); } catch { return json(400, { error: "Bad JSON" }); }
@@ -67,6 +67,6 @@ function accessGate(event) {
   const code = process.env.APP_ACCESS_CODE;
   if (!code) return null;
   const sent = event.headers["x-app-code"] || event.headers["X-App-Code"] || "";
-  if (sent !== code) return json(401, { error: "Access code required or incorrect — set it in Settings." });
+  if (sent !== code) return json(401, { error: "Access code required or incorrect — set it in Settings.", configError: true });
   return null;
 }

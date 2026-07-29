@@ -319,15 +319,30 @@ async function runAutoEstimate(groups, onStatus) {
   catch (e) { console.warn("Refinement pass skipped:", e.message); }
 
   onStatus("Step 3/4 — measuring & pricing…");
-  await runAnalysis(onStatus);
-  // pricing renders automatically off the analysis event
+  try {
+    await runAnalysis(onStatus);   // pricing renders off the analysis event
+  } catch (e) {
+    throw new Error(
+      `Detected ${included} zones OK, but measuring failed: ${e.message} ` +
+      `Your marks are saved — press "Analyze Marked Areas" to retry just that step.`
+    );
+  }
 
   onStatus("Step 4/4 — generating mock-up…");
   const genBtn = document.getElementById("btn-generate");
   const genStatus = document.getElementById("mockup-status");
-  await generateMockup(genBtn, genStatus);
-  renderMockups();
-  renderFallbackPanel();
+  try {
+    await generateMockup(genBtn, genStatus);
+    renderMockups();
+    renderFallbackPanel();
+  } catch (e) {
+    // Measurements and pricing are already done and saved — say so, so the
+    // estimator doesn't think the whole run was wasted.
+    throw new Error(
+      `Measured and priced successfully, but the mock-up image failed: ${e.message} ` +
+      `Press "Generate Mock-Up" to retry, or use the manual fallback panel.`
+    );
+  }
 
   return { included, snapped, refined };
 }

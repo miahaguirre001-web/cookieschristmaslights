@@ -8,7 +8,7 @@ exports.handler = async (event) => {
   const denied = accessGate(event);
   if (denied) return denied;
   const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return json(503, { error: "GOOGLE_MAPS_API_KEY not configured" });
+  if (!key) return json(503, { error: "GOOGLE_MAPS_API_KEY not configured", configError: true });
   const q = event.queryStringParameters || {};
 
   try {

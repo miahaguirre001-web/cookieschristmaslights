@@ -9,8 +9,17 @@
 "use strict";
 
 const API_BASE = "/.netlify/functions";
-const RETRY_DELAYS = [1500, 4000, 9000];
-const RETRYABLE = new Set([502, 503, 504, 429]);
+
+/* Retry schedule. Anthropic returns 529 "Overloaded" under load and Gemini
+ * returns 503/500 — these are capacity blips, not real failures, and they
+ * clear in seconds. Four attempts with jittered backoff (~26s worst case)
+ * turns almost all of them into a successful call the user never sees. */
+const RETRY_DELAYS = [1200, 3500, 8000, 15000];
+
+function isRetryableStatus(status) {
+  if (status === 408 || status === 425 || status === 429) return true;
+  return status >= 500;          // 500/502/503/504/522/524/529 …
+}
 
 /* Optional access code (only needed if APP_ACCESS_CODE is set on the server) */
 const ACCESS_CODE_KEY = "clp_access_code";
@@ -36,44 +45,79 @@ async function apiFetch(path, options = {}, onStatus = null) {
   options.headers = { ...(options.headers || {}) };
   const code = getAccessCode();
   if (code) options.headers["x-app-code"] = code;
+
+  const MAX = RETRY_DELAYS.length;
   let lastErr;
-  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+
+  for (let attempt = 0; attempt <= MAX; attempt++) {
     try {
       const res = await fetch(API_BASE + path, options);
-      if (RETRYABLE.has(res.status) && attempt < RETRY_DELAYS.length) {
-        if (onStatus) onStatus(`Service busy — retrying (${attempt + 1}/3)…`);
-        await sleep(RETRY_DELAYS[attempt]);
+
+      // Read the body ONCE — it can't be consumed twice.
+      const raw = await res.text();
+      let parsed = null;
+      try { parsed = JSON.parse(raw); } catch { /* non-JSON error page */ }
+
+      if (res.ok) return parsed !== null ? parsed : {};
+
+      const detail = parsed
+        ? (typeof parsed.error === "string" ? parsed.error
+           : parsed.error?.message || parsed.message || JSON.stringify(parsed))
+        : raw;
+
+      // A missing API key is NOT transient — fail immediately instead of
+      // making the user wait through the whole backoff for a certain error.
+      const configError = parsed?.configError === true;
+
+      if (!configError && isRetryableStatus(res.status) && attempt < MAX) {
+        if (onStatus) onStatus(busyMessage(res.status, attempt + 1, MAX));
+        await sleep(jitter(RETRY_DELAYS[attempt]));
         continue;
       }
-      if (!res.ok) {
-        // Read the REAL message. Previously this could yield an object and
-        // render as "[object Object]", hiding the actual cause.
-        let detail = "";
-        try {
-          const d = await res.json();
-          detail = typeof d.error === "string" ? d.error
-            : d.error?.message || d.message || JSON.stringify(d);
-        } catch {
-          try { detail = await res.text(); } catch { /* ignore */ }
-        }
-        throw new Error(`Request failed (${res.status})${detail ? ": " + String(detail).slice(0, 400) : ""}`);
-      }
-      return await res.json();
+
+      throw new Error(friendlyError(res.status, detail, attempt, configError));
     } catch (e) {
       lastErr = e;
-      if (e.name === "TypeError" && attempt < RETRY_DELAYS.length) {
-        // network hiccup
-        if (onStatus) onStatus(`Service busy — retrying (${attempt + 1}/3)…`);
-        await sleep(RETRY_DELAYS[attempt]);
+      // Network-level failure (offline, DNS, connection reset)
+      const isNetwork = e.name === "TypeError";
+      if (isNetwork && attempt < MAX) {
+        if (onStatus) onStatus(`Connection problem — retrying (${attempt + 1}/${MAX})…`);
+        await sleep(jitter(RETRY_DELAYS[attempt]));
         continue;
       }
-      if (attempt >= RETRY_DELAYS.length) break;
       throw e;
     }
   }
   throw lastErr || new Error("Request failed");
 }
 
+function busyMessage(status, n, max) {
+  const why = status === 529 || status === 503 ? "AI service busy" : `Service error ${status}`;
+  return `${why} — retrying (${n}/${max})…`;
+}
+
+/* Plain-language errors an estimator can act on. */
+function friendlyError(status, detail, attempts, configError) {
+  // A setup problem must show its own message — never get relabeled as a
+  // transient outage, or the admin will never find the real cause.
+  if (configError) return String(detail || `Configuration error (${status})`);
+  const tried = attempts > 0 ? ` after ${attempts + 1} attempts` : "";
+  if (status === 529 || status === 503) {
+    return `The AI service is overloaded right now${tried}. This is temporary — wait a minute and try again. ` +
+           `If it keeps happening, use the manual fallback panel in the Mock-Up section.`;
+  }
+  if (status === 429) {
+    return `Rate limit reached${tried}. Wait a minute before the next estimate, or check your API plan limits.`;
+  }
+  if (status === 401) return `Access code required or incorrect — set it in Settings.`;
+  if (status === 400 && /credit|billing|quota/i.test(detail || "")) {
+    return `API billing problem: ${detail}. Check credits in your provider console.`;
+  }
+  return `Request failed (${status})${detail ? ": " + String(detail).slice(0, 400) : ""}`;
+}
+
+/* ±25% jitter so parallel calls don't retry in lockstep. */
+const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---- Claude (vision/analysis/parsing) ---- */
