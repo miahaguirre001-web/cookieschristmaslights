@@ -1,0 +1,19 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# API keys are set in Netlify UI → Site settings → Environment variables:
+#   ANTHROPIC_API_KEY   — Claude (vision analysis, QA, voice parsing, auto-detect)
+#   GEMINI_API_KEY      — Gemini Flash Image (mock-up generation)
+#   GOOGLE_MAPS_API_KEY — Geocoding + Street View Static + Maps Static
+# Office staff never see or enter these keys. The app's Settings screen only
+# shows connection status via /health.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"

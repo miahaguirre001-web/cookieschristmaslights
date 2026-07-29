@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cookies Christmas Lights — Mock-Up & Estimating</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="Cookies Christmas Lights" onerror="this.style.display='none'">
+  <h1>Christmas Lights Estimator</h1>
+  <span class="spacer"></span>
+  <a class="nav-link" href="#estimate">Estimate</a>
+  <a class="nav-link" href="#dashboard">Saved Properties</a>
+  <a class="nav-link" href="#pricing">Pricing Guide</a>
+  <a class="nav-link" href="#settings">Settings</a>
+  <button id="btn-new-estimate" class="primary">＋ New Estimate</button>
+</header>
+
+<!-- ======================= ESTIMATE (one scrolling page, no gates) ======================= -->
+<div class="view" id="view-estimate">
+<nav id="jump-bar">
+  <a href="#prop-section">Property</a>
+  <a href="#design-section">Draw the Lights</a>
+  <a href="#measure-section">Measurements</a>
+  <a href="#mockup-section">Mock-Up</a>
+  <a href="#price-section">Price Sheet</a>
+</nav>
+<main>
+
+  <!-- Section 1 — Property -->
+  <section id="prop-section">
+    <div class="section-head"><span class="section-num">1</span><h2>Property</h2></div>
+    <div class="row">
+      <input type="text" id="prop-address" class="grow" placeholder="Property address (this is the record — no CRM)" autocomplete="street-address">
+      <button id="prop-find" class="primary">Find — Street View + Satellite</button>
+    </div>
+    <div class="row">
+      <button id="prop-streetview-btn" class="secondary">Street View only</button>
+      <button id="prop-satellite-btn" class="secondary">Satellite only</button>
+      <label class="secondary" style="cursor:pointer">
+        <span>or upload a photo:</span>
+        <input type="file" id="prop-upload" accept="image/*">
+      </label>
+    </div>
+    <div class="row">
+      <select id="prop-type">
+        <option value="single_family">Single family</option>
+        <option value="two_story">Two story</option>
+        <option value="ranch">Ranch</option>
+        <option value="townhome">Townhome</option>
+        <option value="commercial">Commercial</option>
+      </select>
+      <input type="text" id="prop-notes" class="grow" placeholder="Notes (gate code, dogs, customer prefs…)">
+      <span id="prop-satellite-thumb"></span>
+    </div>
+    <div class="status" id="prop-status"></div>
+  </section>
+
+  <!-- Section 2 — Design the Lights -->
+  <section id="design-section">
+    <div class="section-head"><span class="section-num">2</span><h2>Design the Lights</h2></div>
+    <p class="hint">Three ways to describe the design — auto-detect proposes, voice describes, manual corrects. All three land as the same editable marks below.</p>
+
+    <h3>Mode A — Auto-Detect</h3>
+    <div class="row">
+      <button id="btn-autodetect" class="primary">Auto-Detect Roofline &amp; Features</button>
+      <span id="detect-actions" style="display:none">
+        <button id="btn-select-roofline">Select all roofline</button>
+        <button id="btn-clear-detection" class="secondary">Clear detection &amp; draw manually</button>
+      </span>
+    </div>
+    <div class="status" id="detect-status"></div>
+    <div id="detect-list"></div>
+
+    <h3>Mode B — Describe the design (voice or type)</h3>
+    <textarea id="voice-text" rows="3" placeholder='Click here and dictate with Wispr Flow or your OS mic — e.g. "C9 warm white on the whole front roofline and both gables, wrap the three pillars, mini lights on the bushes by the porch, lit wreath on the front door. Skip the garage."'></textarea>
+    <div class="row">
+      <button id="btn-voice-apply" class="primary">Interpret &amp; preview</button>
+      <span class="status" id="voice-status"></span>
+    </div>
+    <div id="voice-summary"></div>
+
+    <h3>Mode C — Manual drawing</h3>
+    <h3 style="margin-top:8px">a) Customer light color</h3>
+    <div id="color-schemes"></div>
+    <div id="sequence-builder" style="display:none"></div>
+
+    <h3>b) Light options (marker color = product)</h3>
+    <div id="light-types"></div>
+
+    <h3>c) Drawing mode</h3>
+    <div class="row">
+      <div id="draw-tools"></div>
+      <button id="btn-undo">Undo</button>
+      <button id="btn-clear" class="secondary">Clear</button>
+    </div>
+
+    <h3>d) Add-ons</h3>
+    <div class="row">
+      <select id="addon-select"></select>
+      <button id="addon-add">Add to photo</button>
+      <small>Drag to place · corner handle resizes · ✕ deletes. Pillars is a light <b>design</b> — it wraps what's already there.</small>
+    </div>
+
+    <!-- e) the canvas -->
+    <div id="canvas-wrap" class="empty">
+      <canvas id="markup-canvas"></canvas>
+    </div>
+
+    <!-- f) optional AI note (collapsed) -->
+    <details>
+      <summary class="hint">Optional note for the AI (dictate context — never required)</summary>
+      <textarea id="ai-note" rows="2" placeholder="e.g. steep driveway on the left, the dark shape by the door is a grill not a bush"></textarea>
+    </details>
+
+    <!-- g) analyze -->
+    <div class="row" style="margin-top:12px">
+      <button id="btn-analyze" class="go">Analyze Marked Areas</button>
+      <span class="status" id="analysis-status"></span>
+    </div>
+  </section>
+
+  <!-- Section 3 — Measurements -->
+  <section id="measure-section">
+    <div class="section-head"><span class="section-num">3</span><h2>Measurements</h2></div>
+    <div class="warn-banner" id="stale-notice" style="display:none">
+      Markup changed since the last analysis — these numbers may not match the drawing. Re-run <b>Analyze Marked Areas</b>.
+    </div>
+
+    <div class="cal-box">
+      <b>Calibrate for accuracy</b> — enter ONE real measurement and every AI length rescales proportionally. Door height ≈ 6.8 ft works great.
+      <div class="row">
+        <label>AI said (ft) <input type="number" id="cal-ai" step="0.1" style="width:90px"></label>
+        <label>Real value (ft) <input type="number" id="cal-real" step="0.1" style="width:90px"></label>
+        <button id="cal-apply" class="primary">Rescale all AI measurements</button>
+      </div>
+    </div>
+
+    <div id="meas-table"></div>
+    <div id="meas-warnings"></div>
+
+    <button id="meas-add-toggle" class="secondary" style="margin-top:10px">＋ Add a measurement</button>
+    <div id="meas-add-drawer">
+      <div class="row">
+        <input type="text" id="meas-add-label" placeholder="Label (e.g. back porch)">
+        <select id="meas-add-item"></select>
+        <input type="number" id="meas-add-value" placeholder="ft" step="0.5" style="width:90px">
+        <button id="meas-add-btn">Add</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4 — Mock-Up -->
+  <section id="mockup-section">
+    <div class="section-head"><span class="section-num">4</span><h2>Mock-Up</h2></div>
+    <div class="row">
+      <button id="btn-generate" class="go">Generate Mock-Up</button>
+      <span class="status" id="mockup-status"></span>
+    </div>
+    <div id="mockup-results"></div>
+
+    <!-- Manual fallback — ALWAYS visible, core feature -->
+    <div class="fallback-panel">
+      <b>Manual fallback</b> — when in-app generation isn't good enough, paste this exact prompt plus the base photo into Gemini or ChatGPT, then upload the result back in.
+      <textarea id="fb-prompt" readonly></textarea>
+      <div class="row">
+        <button id="fb-copy">Copy Prompt</button>
+        <button id="fb-download">Download Base Photo</button>
+        <label style="cursor:pointer"><span>Upload Result:</span> <input type="file" id="fb-upload" accept="image/*"></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5 — Price Sheet -->
+  <section id="price-section">
+    <div class="section-head"><span class="section-num">5</span><h2>Price Sheet</h2></div>
+    <label class="row"><input type="checkbox" id="boom-lift"> Boom lift required (+fee from Pricing Guide)</label>
+    <div id="price-sheet"></div>
+  </section>
+
+</main>
+</div>
+
+<!-- ======================= DASHBOARD ======================= -->
+<div class="view" id="view-dashboard" style="display:none">
+<main>
+  <section>
+    <div class="section-head"><h2>Saved Properties</h2></div>
+    <p class="hint">Every estimate saves automatically under its address.</p>
+    <div id="dash-list"></div>
+  </section>
+</main>
+</div>
+
+<!-- ======================= PRICING GUIDE ======================= -->
+<div class="view" id="view-pricing" style="display:none">
+<main>
+  <section>
+    <div class="section-head"><h2>Pricing Guide</h2></div>
+    <p class="hint">Rates change mid-season — edit anything here, it saves immediately and applies to all new quotes. App updates never overwrite your edits. Rows highlighted orange have no price yet; quotes using them refuse to finalize.</p>
+    <div class="row">
+      <button id="pg-export">Export config (backup)</button>
+      <label style="cursor:pointer"><span>Import config:</span> <input type="file" id="pg-import" accept=".json"></label>
+    </div>
+    <h3>Rules</h3>
+    <div id="pg-rules"></div>
+    <h3>Items</h3>
+    <div id="pg-items"></div>
+  </section>
+</main>
+</div>
+
+<!-- ======================= SETTINGS ======================= -->
+<div class="view" id="view-settings" style="display:none">
+<main>
+  <section>
+    <div class="section-head"><h2>Settings</h2></div>
+    <div id="settings-status"></div>
+  </section>
+</main>
+</div>
+
+<script src="js/01-core-config.js"></script>
+<script src="js/02-api.js"></script>
+<script src="js/03-state.js"></script>
+<script src="js/04-property.js"></script>
+<script src="js/05-canvas.js"></script>
+<script src="js/06-analysis.js"></script>
+<script src="js/07-measurements.js"></script>
+<script src="js/08-pricing.js"></script>
+<script src="js/09-pricing-guide.js"></script>
+<script src="js/10-mockup.js"></script>
+<script src="js/11-autodetect.js"></script>
+<script src="js/12-voice.js"></script>
+<script src="js/13-dashboard.js"></script>
+<script src="js/14-app.js"></script>
+</body>
+</html>
