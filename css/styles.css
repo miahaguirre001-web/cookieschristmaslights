@@ -144,6 +144,24 @@ button.link-btn { background: none; border: none; color: var(--gold); text-decor
 #canvas-wrap.empty { min-height: 220px; }
 #markup-canvas { width: 100%; display: block; touch-action: none; cursor: crosshair; }
 
+/* auto-estimate */
+.auto-panel {
+  background: linear-gradient(135deg, rgba(46,158,79,.14), rgba(245,185,66,.06));
+  border: 1px solid var(--green); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 16px;
+}
+.auto-panel h3 { color: var(--text); text-transform: none; font-size: 16px; letter-spacing: 0; }
+.auto-zones {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 6px; margin: 10px 0;
+}
+.auto-zone {
+  display: flex; align-items: center; gap: 8px; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  font-size: 14px; cursor: pointer;
+}
+.auto-zone:has(input:checked) { border-color: var(--green); background: rgba(46,158,79,.12); }
+
 /* detection */
 #detect-list { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; max-height: 220px; overflow: auto; }
 .detect-item { font-size: 13px; display: flex; gap: 8px; align-items: center; }

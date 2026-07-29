@@ -147,6 +147,17 @@ function setStatus(el, msg, kind = "") {
   el.className = "status " + kind;
 }
 
+/* Scrolling must never break a workflow — some browsers/embeds lack
+ * smooth scrollIntoView, and a throw here would mask a successful result. */
+function scrollToSection(id) {
+  try {
+    const el = document.getElementById(id);
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth" });
+    }
+  } catch { /* non-fatal */ }
+}
+
 async function withBusy(btn, fn) {
   const orig = btn.textContent;
   btn.disabled = true;

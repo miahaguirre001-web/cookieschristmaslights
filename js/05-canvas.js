@@ -365,6 +365,9 @@ function redraw() {
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(Canvas.img, 0, 0, W, H);
 
+  // Badge placement bookkeeping — prevents the wall of overlapping
+  // "50% verify" chips when detection returns many candidates.
+  Canvas._badges = [];
   for (const m of project.marks) drawMark(ctx, m, W, H);
 
   // in-progress drag ghost
@@ -395,7 +398,9 @@ function drawMark(ctx, m, W, H) {
   ctx.save();
   const lw = Math.max(2.5, W / 260);
   const excluded = m.included === false;
-  ctx.globalAlpha = excluded ? 0.35 : 1;
+  // Candidates the estimator hasn't accepted stay faint so they never
+  // compete with the actual design.
+  ctx.globalAlpha = excluded ? 0.18 : 1;
 
   if (m.kind === "line" || m.kind === "curve") {
     ctx.strokeStyle = markerColor(m.lightType);
@@ -455,21 +460,37 @@ function drawMark(ctx, m, W, H) {
     ctx.fillRect(x + w - 6, y + h - 6, 12, 12);
   }
 
-  // confidence badge for detected marks
-  if (m.source === "detected" && m.confidence != null) {
-    const pt = m.kind === "addon" || m.kind === "area"
-      ? { x: m.rect.x, y: m.rect.y }
-      : m.a;
+  // Confidence badge — INCLUDED detected marks only, de-overlapped, compact.
+  // Excluded candidates get no badge at all; their status lives in the list.
+  if (m.source === "detected" && m.confidence != null && !excluded) {
+    const pt = (m.kind === "addon" || m.kind === "area") ? { x: m.rect.x, y: m.rect.y } : m.a;
     const pct = Math.round(m.confidence * 100);
     const low = m.confidence < 0.6;
+    const bw = Math.max(26, W / 26), bh = Math.max(13, W / 55);
+    const step = bh + 4;                       // MUST exceed the collision
+    const overlaps = (x, y) => (Canvas._badges || []).some((b) =>
+      Math.abs(b.x - x) < bw && Math.abs(b.y - y) < bh);   // threshold < step
+    let bx = Math.min(Math.max(0, pt.x * W), W - bw);
+    let by = Math.min(Math.max(0, pt.y * H - bh - 4), H - bh);
+    let placed = !overlaps(bx, by);
+    for (let tries = 0; !placed && tries < 20; tries++) {
+      by += step;
+      if (by > H - bh) break;
+      if (!overlaps(bx, by)) placed = true;
+    }
+    // If it still can't find clear space, skip the badge entirely rather than
+    // stacking chips on top of each other — the list below carries the detail.
+    if (!placed) { ctx.restore(); return; }
+    (Canvas._badges || []).push({ x: bx, y: by });
     ctx.globalAlpha = 1;
     ctx.fillStyle = low ? "#ff9800" : "#4caf50";
-    const bx = pt.x * W, by = pt.y * H - 10;
-    ctx.fillRect(bx, by - 12, low ? 64 : 40, 15);
+    roundRect(ctx, bx, by, bw, bh, 3);
+    ctx.fill();
     ctx.fillStyle = "#000";
-    ctx.font = "11px system-ui";
-    ctx.textAlign = "left";
-    ctx.fillText(low ? `${pct}% verify` : `${pct}%`, bx + 3, by - 1);
+    ctx.font = `bold ${Math.max(9, W / 95)}px system-ui`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${pct}%`, bx + bw / 2, by + bh / 2 + 0.5);
   }
   ctx.restore();
 }
@@ -673,6 +694,16 @@ function drawDeer(ctx, x, y, w, h, { facingLeft, isBaby, hasAntlers }) {
     ctx.fill();
   }
   ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function drawWave(ctx, a, b, W, H) {

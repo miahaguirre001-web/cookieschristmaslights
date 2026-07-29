@@ -46,14 +46,47 @@ AI calls and map imports need the functions.
 
 ## Using the tool (estimator workflow)
 
+**The fast path — Auto-Estimate.** Enter the address, hit **Find**, tick which
+zones should be lit (roofline is on by default), and press
+**⚡ Run Auto-Estimate**. One click runs the whole chain:
+
+```
+detect → snap lines to real edges → AI verifies placement
+      → measure → price → mock-up
+```
+
+Then you glance at the result and send it. The manual tools stay underneath
+purely for corrections when automation misses.
+
+### How detection accuracy is handled
+
+Raw vision-model coordinates drift — lines end up floating above the roof.
+Three layers fix it:
+
+1. **Grid anchoring** — the detection image carries a labeled 10% reference
+   grid, so the model reports coordinates against visible lines instead of
+   guessing proportions.
+2. **Edge snapping** — client-side Sobel edge detection slides each line onto
+   the strongest real image edge nearby. Roof-against-sky is the strongest
+   edge in a typical photo, so this is very reliable. Costs nothing, no API
+   call. (Tested: a line drifting 24px into the sky snaps to within 1px.)
+3. **AI verification pass** — the lines are drawn *on* the photo and sent back
+   once: "do these sit on the real edges? correct any that don't." Models
+   judge an overlay far better than they emit blind coordinates.
+
+If detection finds nothing in the chosen zones, the tool says so plainly and
+sends you to manual marking — it never produces a silent empty quote, and it
+doesn't spend image credits on a failed run.
+
+### Step-by-step (when you want control)
+
 One scrolling page, no gates: **Property → Draw the Lights → Measurements →
 Mock-Up → Price Sheet.**
 
 1. Type the address, hit **Find** — imports Street View + satellite together.
-2. Design the lights three interchangeable ways: **Auto-Detect** (proposes
-   editable candidates — nothing is included until you confirm), **dictate**
-   into the describe box (Wispr Flow or OS dictation), or **draw manually**
-   (always works, always wins).
+2. Design the lights: **Auto-Detect** alone (proposes editable candidates),
+   **dictate** into the describe box (Wispr Flow or OS dictation), or **draw
+   manually** (always works, always wins).
 3. Hit **Analyze Marked Areas** — this IS the sign-off; it unlocks measurements,
    mock-up, and pricing. Editing marks afterward flags everything stale.
 4. **Calibrate**: enter one real measurement (door ≈ 6.8 ft) — every AI length

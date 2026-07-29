@@ -92,43 +92,51 @@ function describeMarkGeometry(m) {
   return `[${m.id}] add-on "${a?.label || m.addonId}" placed at (${pct(r.x + r.w / 2)}, ${pct(r.y + r.h / 2)}), approx ${pct(r.w)} wide × ${pct(r.h)} tall${desc ? " — " + desc : ""}${a?.isWrapDesign ? " — wrap lights around the EXISTING structure here; never add a new pillar/object" : ""}`;
 }
 
+/* Core analysis, callable from the button AND the Auto-Estimate pipeline. */
+async function runAnalysis(onStatus = () => {}) {
+  if (!project.photo) throw new Error("Import or upload a photo first.");
+  const included = project.marks.filter((m) => m.included !== false);
+  if (!included.length) throw new Error("No marks to analyze — draw or auto-detect first.");
+
+  // Send the ORIGINAL photo (full frame, no crop — Rule 10) + markup preview
+  const markupImage = renderHumanMarkupSnapshot();
+  const text = await callClaude({
+    system: "You are a precise construction estimator. Respond with valid JSON only.",
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: "Image 1: original property photo. Image 2: same photo with estimator markup." },
+        imageBlock(project.photo),
+        imageBlock(markupImage),
+        { type: "text", text: buildAnalysisPrompt() },
+      ],
+    }],
+    maxTokens: 3000,
+  }, onStatus);
+
+  const parsed = validateShape(extractJSON(text), {
+    measurements: "array", installNotes: "array", warnings: "array",
+    stories: "number", overallConfidence: "number",
+  }, "Analysis");
+
+  // Never mutate project data until validation passes — done. Now commit:
+  applyAnalysis(parsed);
+}
+
 function initAnalysis() {
   const btn = document.getElementById("btn-analyze");
   const status = document.getElementById("analysis-status");
 
   btn.addEventListener("click", () => withBusy(btn, async () => {
-    if (!project.photo) { setStatus(status, "Import or upload a photo first.", "warn"); return; }
-    const included = project.marks.filter((m) => m.included !== false);
-    if (!included.length) { setStatus(status, "Draw at least one mark first.", "warn"); return; }
-
     setStatus(status, "Analyzing marked areas…");
-    const onStatus = (msg) => { btn.textContent = msg; };
-
-    // Send the ORIGINAL photo (full frame, no crop — Rule 10) + markup preview
-    const markupImage = renderHumanMarkupSnapshot();
-    const text = await callClaude({
-      system: "You are a precise construction estimator. Respond with valid JSON only.",
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: "Image 1: original property photo. Image 2: same photo with estimator markup." },
-          imageBlock(project.photo),
-          imageBlock(markupImage),
-          { type: "text", text: buildAnalysisPrompt() },
-        ],
-      }],
-      maxTokens: 3000,
-    }, onStatus);
-
-    const parsed = validateShape(extractJSON(text), {
-      measurements: "array", installNotes: "array", warnings: "array",
-      stories: "number", overallConfidence: "number",
-    }, "Analysis");
-
-    // Never mutate project data until validation passes — done. Now commit:
-    applyAnalysis(parsed);
+    try {
+      await runAnalysis((msg) => { btn.textContent = msg; });
+    } catch (e) {
+      setStatus(status, e.message, "warn");
+      return;
+    }
     setStatus(status, "Analysis complete — review measurements below.", "ok");
-    document.getElementById("measure-section").scrollIntoView({ behavior: "smooth" });
+    scrollToSection("measure-section");
   }));
 }
 

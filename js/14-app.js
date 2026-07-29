@@ -5,7 +5,14 @@
  * ========================================================================= */
 "use strict";
 
+let _appBooted = false;
+
 document.addEventListener("DOMContentLoaded", () => {
+  // Idempotence guard: if this ever runs twice, every button would get a
+  // second listener and each click would fire two paid API calls.
+  if (_appBooted) return;
+  _appBooted = true;
+
   loadPricingConfig();          // seeds + migrates
   initProperty();
   initCanvas();

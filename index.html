@@ -64,18 +64,30 @@
     <div class="section-head"><span class="section-num">2</span><h2>Design the Lights</h2></div>
     <p class="hint">Three ways to describe the design — auto-detect proposes, voice describes, manual corrects. All three land as the same editable marks below.</p>
 
-    <h3>Mode A — Auto-Detect</h3>
-    <div class="row">
-      <button id="btn-autodetect" class="primary">Auto-Detect Roofline &amp; Features</button>
-      <span id="detect-actions" style="display:none">
-        <button id="btn-select-roofline">Select all roofline</button>
-        <button id="btn-clear-detection" class="secondary">Clear detection &amp; draw manually</button>
-      </span>
+    <div class="auto-panel">
+      <h3 style="margin-top:0">⚡ Auto-Estimate — one click, whole job</h3>
+      <p class="hint">Pick what should be lit. The AI detects it, snaps the lines to the real edges, verifies its own placement, then measures, prices, and builds the mock-up — in one pass. Use the manual tools below only if this misses.</p>
+      <div id="auto-zones" class="auto-zones"></div>
+      <div class="row">
+        <button id="btn-auto-estimate" class="go">⚡ Run Auto-Estimate</button>
+        <span class="status" id="auto-status"></span>
+      </div>
     </div>
-    <div class="status" id="detect-status"></div>
-    <div id="detect-list"></div>
 
-    <h3>Mode B — Describe the design (voice or type)</h3>
+    <details>
+      <summary class="hint">Step-by-step tools (detect only, without measuring or mock-up)</summary>
+      <div class="row" style="margin-top:8px">
+        <button id="btn-autodetect" class="primary">Auto-Detect Roofline &amp; Features</button>
+        <span id="detect-actions" style="display:none">
+          <button id="btn-select-roofline">Select all roofline</button>
+          <button id="btn-clear-detection" class="secondary">Clear detection &amp; draw manually</button>
+        </span>
+      </div>
+      <div class="status" id="detect-status"></div>
+      <div id="detect-list"></div>
+    </details>
+
+    <h3>Describe the design instead (voice or type)</h3>
     <textarea id="voice-text" rows="3" placeholder='Click here and dictate with Wispr Flow or your OS mic — e.g. "C9 warm white on the whole front roofline and both gables, wrap the three pillars, mini lights on the bushes by the porch, lit wreath on the front door. Skip the garage."'></textarea>
     <div class="row">
       <button id="btn-voice-apply" class="primary">Interpret &amp; preview</button>
@@ -83,7 +95,7 @@
     </div>
     <div id="voice-summary"></div>
 
-    <h3>Mode C — Manual drawing</h3>
+    <h3>Manual drawing (fallback &amp; corrections)</h3>
     <h3 style="margin-top:8px">a) Customer light color</h3>
     <div id="color-schemes"></div>
     <div id="sequence-builder" style="display:none"></div>
