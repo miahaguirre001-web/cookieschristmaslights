@@ -14,9 +14,24 @@ accurate price in under 5 minutes. Internal sales tool — no logins, no CRM; th
    - `GEMINI_API_KEY` — Gemini, for mock-up image generation
    - `GOOGLE_MAPS_API_KEY` — Geocoding + Street View Static + Maps Static
      (enable those three APIs on the key in Google Cloud Console)
-3. Deploy. Open the site → **Settings** tab should show all three "Connected".
+   - `APP_ACCESS_CODE` — *optional but recommended on a public URL*: any
+     passphrase. When set, AI/map features require it (staff enter it once in
+     the app's Settings tab). Without it, anyone who finds the URL can burn
+     your API credits.
+3. **Redeploy after adding variables** (Deploys → Trigger deploy → Deploy site) —
+   functions only pick up env vars on a fresh deploy.
+4. Open the site → **Settings** tab should show all three "Connected".
 
 Office staff never see or enter keys — they're server-side only.
+
+> **Google Maps key gotcha:** restrict the key by *API* (those three), NOT by
+> HTTP referrer — calls come from the Netlify function, not the browser, so a
+> referrer restriction breaks it.
+
+> **Timeouts:** Netlify functions default to a 10-second limit. Mock-up
+> generation and analysis sometimes take longer; if you see repeated
+> "Service busy / 502" even after retries, ask Netlify support to raise the
+> function timeout to 26 s (free) — or use the manual fallback panel.
 
 ### Local development
 

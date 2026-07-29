@@ -5,6 +5,8 @@
 // GET ?op=streetview&lat=..&lng=..   → { image: base64 jpeg }
 // GET ?op=satellite&lat=..&lng=..    → { image: base64 png }
 exports.handler = async (event) => {
+  const denied = accessGate(event);
+  if (denied) return denied;
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return json(503, { error: "GOOGLE_MAPS_API_KEY not configured" });
   const q = event.queryStringParameters || {};
@@ -42,3 +44,11 @@ const json = (statusCode, obj) => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(obj),
 });
+
+function accessGate(event) {
+  const code = process.env.APP_ACCESS_CODE;
+  if (!code) return null;
+  if ((event.headers["x-app-code"] || "") !== code)
+    return json(401, { error: "Access code required — enter it in Settings." });
+  return null;
+}

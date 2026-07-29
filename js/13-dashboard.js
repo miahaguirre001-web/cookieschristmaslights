@@ -71,7 +71,33 @@ async function renderSettings() {
       <div class="conn ${h.claude ? "ok" : "bad"}">Claude (analysis, QA, voice, detect): ${h.claude ? "Connected" : "Not configured"}</div>
       <div class="conn ${h.gemini ? "ok" : "bad"}">Gemini (mock-up images): ${h.gemini ? "Connected" : "Not configured"}</div>
       <div class="conn ${h.maps ? "ok" : "bad"}">Google Maps (address, Street View): ${h.maps ? "Connected" : "Not configured"}</div>
-      <p class="hint">Keys are configured server-side by the site admin (Netlify → Environment variables). Office staff never handle keys.</p>`;
+      ${h.accessRequired ? `
+      <div class="row" style="margin-top:12px">
+        <label>Access code <input type="password" id="set-access-code" value="${esc(getAccessCode())}"></label>
+        <button id="set-access-save">Save</button>
+        <small>This site requires an access code (set by the admin). Saved on this computer only.</small>
+      </div>` : ""}
+      <div class="row" style="margin-top:12px">
+        <button id="btn-test-conn" class="primary">Test connections (live)</button>
+        <small>Makes one tiny real call to Claude and Google Maps and shows the exact error if something's wrong. Gemini isn't auto-tested because image calls cost credits — test it by generating a mock-up.</small>
+      </div>
+      <div id="test-results"></div>
+      <p class="hint">Keys are configured server-side by the site admin (Netlify → Environment variables). Office staff never handle keys. After changing any variable you must <b>redeploy</b> for functions to pick it up.</p>`;
+    document.getElementById("btn-test-conn").addEventListener("click", (e) =>
+      withBusy(e.target, async () => {
+        const out = document.getElementById("test-results");
+        out.innerHTML = `<p class="hint">Testing…</p>`;
+        const r = await testConnections();
+        out.innerHTML = Object.entries(r).map(([k, v]) =>
+          `<div class="conn ${v.ok ? "ok" : "bad"}"><b>${k}</b>: ${v.ok ? "working" : "FAILED"} — ${esc(v.detail)}</div>`
+        ).join("");
+      })
+    );
+    const saveBtn = document.getElementById("set-access-save");
+    if (saveBtn) saveBtn.addEventListener("click", () => {
+      setAccessCode(document.getElementById("set-access-code").value.trim());
+      alert("Saved. AI features will use this code.");
+    });
   } catch {
     host.innerHTML = `<div class="conn bad">Backend unreachable. Running without deployment? AI features need the Netlify functions — see README for deploy steps. The manual fallback prompt panel in the Mock-Up section still works.</div>`;
   }

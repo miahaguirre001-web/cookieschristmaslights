@@ -6,5 +6,6 @@ exports.handler = async () => ({
     claude: !!process.env.ANTHROPIC_API_KEY,
     gemini: !!process.env.GEMINI_API_KEY,
     maps: !!process.env.GOOGLE_MAPS_API_KEY,
+    accessRequired: !!process.env.APP_ACCESS_CODE,
   }),
 });

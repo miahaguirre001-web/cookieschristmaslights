@@ -49,6 +49,23 @@ Return ONLY compact JSON, no prose:
 For bush/shrub AREA marks: report estimated plant height and width in ft in "basis", classify sizeClass small|medium|large|xl, and set lengthFt to estimated wrap footage. Add "sizeClass" field on those rows. Keep every note under 15 words. Be terse.`;
 }
 
+/* Concrete physical descriptions so the image model renders a real
+ * decoration rather than a generic shape. */
+const ADDON_RENDER_HINTS = {
+  wreath_lit: "a round evergreen Christmas wreath hung flat against the surface, lit with warm white bulbs around the ring and a red velvet bow at the bottom",
+  wreath_unlit: "a round evergreen Christmas wreath hung flat against the surface with a red bow, NO lights on it",
+  bow_red: "a large red velvet ribbon bow with two loops and two tails",
+  bow_striped: "a striped ribbon bow with two loops and two tails",
+  garland: "a thick evergreen garland swag draped in a natural curve, wound with warm white bulbs",
+  teardrop: "a hanging evergreen teardrop/swag spray pointing downward, lit with warm white bulbs",
+  deer_baby_l: "a small lit wire-frame fawn lawn figure facing left, outlined in warm white bulbs",
+  deer_baby_r: "a small lit wire-frame fawn lawn figure facing right, outlined in warm white bulbs",
+  deer_buck_l: "a lit wire-frame buck lawn figure with antlers facing left, outlined in warm white bulbs",
+  deer_buck_r: "a lit wire-frame buck lawn figure with antlers facing right, outlined in warm white bulbs",
+  deer_doe_l: "a lit wire-frame doe lawn figure (no antlers) facing left, outlined in warm white bulbs",
+  deer_doe_r: "a lit wire-frame doe lawn figure (no antlers) facing right, outlined in warm white bulbs",
+};
+
 function describeMarkGeometry(m) {
   const pct = (v) => (v * 100).toFixed(0) + "%";
   if (m.kind === "line" || m.kind === "curve") {
@@ -61,7 +78,8 @@ function describeMarkGeometry(m) {
   }
   const a = ADDONS.find((x) => x.id === m.addonId);
   const r = m.rect;
-  return `[${m.id}] add-on "${a?.label || m.addonId}" placed at (${pct(r.x + r.w / 2)}, ${pct(r.y + r.h / 2)})${a?.isWrapDesign ? " — wrap lights around the EXISTING structure here; never add a new pillar/object" : ""}`;
+  const desc = ADDON_RENDER_HINTS[m.addonId] || "";
+  return `[${m.id}] add-on "${a?.label || m.addonId}" placed at (${pct(r.x + r.w / 2)}, ${pct(r.y + r.h / 2)}), approx ${pct(r.w)} wide × ${pct(r.h)} tall${desc ? " — " + desc : ""}${a?.isWrapDesign ? " — wrap lights around the EXISTING structure here; never add a new pillar/object" : ""}`;
 }
 
 function initAnalysis() {
@@ -104,10 +122,14 @@ function initAnalysis() {
   }));
 }
 
-/* Snapshot of the human markup canvas (PNG, native res — no quality loss) */
+/* Snapshot of the human markup canvas for ANALYSIS only. JPEG here is
+ * deliberate and does NOT violate Rule 13: this image is read for geometry,
+ * it never enters the mock-up image-editing chain (that pipeline in
+ * 10-mockup.js stays strictly PNG). JPEG keeps the request under Netlify's
+ * 6 MB function body limit for large uploaded photos. */
 function renderHumanMarkupSnapshot() {
   redraw();
-  return Canvas.el.toDataURL("image/png");
+  return Canvas.el.toDataURL("image/jpeg", 0.9);
 }
 
 function applyAnalysis(parsed) {

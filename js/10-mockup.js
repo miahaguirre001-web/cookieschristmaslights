@@ -75,6 +75,9 @@ function makeMarkupMap(nightBaseDataUrl, marks) {
           ctx.strokeRect(r.x * W, r.y * H, r.w * W, r.h * H);
           labelMark(ctx, m.id, r.x * W, r.y * H - 8, W);
         } else if (m.kind === "addon") {
+          // Clean box + id only. The decoration TYPE is named in the prompt
+          // checklist; drawing art here would risk the model copying the
+          // drawing's style instead of rendering a real decoration (Rule 3).
           const r = m.rect;
           ctx.strokeStyle = "#ffcc33";
           ctx.lineWidth = lw * 0.8;
@@ -123,7 +126,9 @@ ONLY TWO THINGS MAY CHANGE from image 1: (a) Christmas lights are added exactly 
 PLACEMENT — from the marks EXCLUSIVELY:
 ${geometry}
 
-Marker legend: red lines = C9 bulbs (large 3", ~12" spacing), blue = C7 (~2.5", windows), green = mini lights (dense sparkle), purple = multicolor strands, pink = icicle strands. Translucent washed rectangles mark bush/shrub regions: light the REAL plants inside that region so the lights conform to each plant's natural outline — NEVER render a rectangle, grid, or block of light, and NEVER invent a plant that isn't in the photo. Yellow boxes are decoration placements. Wrap-style marks mean: wrap lights around whatever ALREADY EXISTS at that spot (pillar, post, trunk); if nothing wrappable exists, place a clean vertical light run instead — never fabricate an object. Any zone names in this prompt are descriptive labels only, NOT placement instructions.
+Marker legend: red lines = C9 bulbs (large 3", ~12" spacing), blue = C7 (~2.5", windows), green = mini lights (dense sparkle), purple = multicolor strands, pink = icicle strands. Translucent washed rectangles mark bush/shrub regions: light the REAL plants inside that region so the lights conform to each plant's natural outline — NEVER render a rectangle, grid, or block of light, and NEVER invent a plant that isn't in the photo. Wrap-style marks mean: wrap lights around whatever ALREADY EXISTS at that spot (pillar, post, trunk); if nothing wrappable exists, place a clean vertical light run instead — never fabricate an object. Any zone names in this prompt are descriptive labels only, NOT placement instructions.
+
+Yellow boxes are DECORATION placements. Each yellow box must be replaced by the actual physical decoration described for that mark ID above — render it as a real, three-dimensional, photorealistic object of the correct type, scale and orientation, sitting naturally in the scene with correct perspective, contact shadows and light spill. A wreath must look like a real evergreen wreath, a bow like real ribbon, a deer like a real lit wire-frame lawn figure. Do NOT draw a flat icon, outline, symbol, box, or label in place of a decoration.
 
 INSTALL NOTES (these agree with the marks; if anything seems to conflict, the marks win):
 ${notes || "- Light exactly and only the marked runs."}

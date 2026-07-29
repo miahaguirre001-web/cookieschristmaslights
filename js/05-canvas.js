@@ -427,24 +427,32 @@ function drawMark(ctx, m, W, H) {
   } else if (m.kind === "addon") {
     const a = ADDONS.find((x) => x.id === m.addonId);
     const r = m.rect;
-    ctx.strokeStyle = "#ffcc33";
-    ctx.lineWidth = lw;
-    ctx.strokeRect(r.x * W, r.y * H, r.w * W, r.h * H);
-    ctx.font = `${Math.max(16, r.h * H * 0.5)}px system-ui`;
+    const x = r.x * W, y = r.y * H, w = r.w * W, h = r.h * H;
+
+    // Draw the ACTUAL decoration shape so the estimator sees a wreath that
+    // looks like a wreath, not a labelled box.
+    drawAddonShape(ctx, m.addonId, x, y, w, h);
+
+    // subtle selection frame (not the decoration itself)
+    ctx.strokeStyle = "rgba(255,204,51,.55)";
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = Math.max(1, lw * 0.4);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+
+    ctx.font = `${Math.max(11, W / 90)}px system-ui`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#ffcc33";
-    ctx.fillText(a?.glyph || "?", (r.x + r.w / 2) * W, (r.y + r.h / 2) * H);
-    ctx.font = `${Math.max(11, W / 90)}px system-ui`;
-    ctx.fillText(a?.label || m.addonId, (r.x + r.w / 2) * W, (r.y + r.h) * H + 14);
+    ctx.fillText(a?.label || m.addonId, x + w / 2, y + h + 14);
     // handles: ✕ delete (top-right), resize (bottom-right)
     ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.arc((r.x + r.w) * W, r.y * H, 9, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + w, y, 9, 0, 7); ctx.fill();
     ctx.fillStyle = "#c62828";
-    ctx.font = "12px system-ui";
-    ctx.fillText("✕", (r.x + r.w) * W, r.y * H + 1);
+    ctx.font = "bold 12px system-ui";
+    ctx.fillText("✕", x + w, y + 1);
     ctx.fillStyle = "#ffcc33";
-    ctx.fillRect((r.x + r.w) * W - 6, (r.y + r.h) * H - 6, 12, 12);
+    ctx.fillRect(x + w - 6, y + h - 6, 12, 12);
   }
 
   // confidence badge for detected marks
@@ -462,6 +470,207 @@ function drawMark(ctx, m, W, H) {
     ctx.font = "11px system-ui";
     ctx.textAlign = "left";
     ctx.fillText(low ? `${pct}% verify` : `${pct}%`, bx + 3, by - 1);
+  }
+  ctx.restore();
+}
+
+/* ---------------- add-on vector art ----------------
+ * Recognizable shapes drawn to fit the mark's box. These are for the human
+ * preview; the AI-facing map still sends clean boxes + [mark_id] labels, and
+ * the prompt names the decoration type (Rules 3 & 4 unaffected). */
+function drawAddonShape(ctx, id, x, y, w, h) {
+  const cx = x + w / 2, cy = y + h / 2;
+  const R = Math.min(w, h) / 2;
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  const GREEN = "#1f7a35", GREEN_HI = "#2fb356", RED = "#d81b1b", GOLD = "#f5c542", WARM = "#fff3b0";
+
+  if (id === "wreath_lit" || id === "wreath_unlit") {
+    // foliage ring built from overlapping arcs
+    ctx.lineWidth = Math.max(3, R * 0.42);
+    ctx.strokeStyle = GREEN;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.72, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = Math.max(1.5, R * 0.18);
+    ctx.strokeStyle = GREEN_HI;
+    for (let i = 0; i < 12; i++) {
+      const a0 = (i / 12) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.72, a0, a0 + 0.38);
+      ctx.stroke();
+    }
+    if (id === "wreath_lit") {
+      // warm bulbs around the ring
+      for (let i = 0; i < 14; i++) {
+        const a0 = (i / 14) * Math.PI * 2;
+        const bx = cx + Math.cos(a0) * R * 0.72, by = cy + Math.sin(a0) * R * 0.72;
+        ctx.beginPath();
+        ctx.fillStyle = WARM;
+        ctx.arc(bx, by, Math.max(1.6, R * 0.11), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    drawBow(ctx, cx, y + h * 0.94, R * 0.75, RED);   // bow at the bottom
+  } else if (id === "bow_red" || id === "bow_striped") {
+    drawBow(ctx, cx, cy, R * 1.5, id === "bow_striped" ? GOLD : RED, id === "bow_striped");
+  } else if (id === "garland") {
+    // draped swag with bulbs
+    ctx.lineWidth = Math.max(3, h * 0.3);
+    ctx.strokeStyle = GREEN;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h * 0.25);
+    ctx.quadraticCurveTo(cx, y + h * 1.15, x + w, y + h * 0.25);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(1.5, h * 0.12);
+    ctx.strokeStyle = GREEN_HI;
+    ctx.stroke();
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8;
+      const bx = x + w * t;
+      const by = (1 - t) * (1 - t) * (y + h * 0.25) + 2 * (1 - t) * t * (y + h * 1.15) + t * t * (y + h * 0.25);
+      ctx.beginPath(); ctx.fillStyle = WARM;
+      ctx.arc(bx, by, Math.max(1.5, h * 0.09), 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (id === "pillar_wrap") {
+    // spiral wrap around whatever exists here — no pillar drawn (Rule 7)
+    ctx.lineWidth = Math.max(2, w * 0.09);
+    ctx.strokeStyle = WARM;
+    ctx.globalAlpha = 0.95;
+    const turns = 7;
+    ctx.beginPath();
+    for (let i = 0; i <= turns * 20; i++) {
+      const t = i / (turns * 20);
+      const px = cx + Math.sin(t * Math.PI * 2 * turns) * (w * 0.42);
+      const py = y + h * t;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+    for (let i = 0; i <= turns; i++) {
+      const t = i / turns;
+      ctx.beginPath(); ctx.fillStyle = GOLD;
+      ctx.arc(cx + Math.sin(t * Math.PI * 2 * turns) * (w * 0.42), y + h * t, Math.max(1.5, w * 0.07), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === "teardrop") {
+    ctx.fillStyle = GREEN;
+    ctx.beginPath();
+    ctx.moveTo(cx, y);
+    ctx.quadraticCurveTo(x + w, cy, cx, y + h);
+    ctx.quadraticCurveTo(x, cy, cx, y);
+    ctx.fill();
+    for (let i = 1; i < 6; i++) {
+      ctx.beginPath(); ctx.fillStyle = WARM;
+      ctx.arc(cx, y + (h * i) / 6, Math.max(1.4, w * 0.07), 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (id.startsWith("deer_")) {
+    // Only a BUCK has antlers — doe and fawn must not.
+    drawDeer(ctx, x, y, w, h, {
+      facingLeft: id.endsWith("_l"),
+      isBaby: id.includes("baby"),
+      hasAntlers: id.includes("buck"),
+    });
+  } else {
+    ctx.strokeStyle = GOLD;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+  }
+  ctx.restore();
+}
+
+function drawBow(ctx, cx, cy, size, color, striped = false) {
+  const s = size * 0.5;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.strokeStyle = "rgba(0,0,0,.35)";
+  ctx.lineWidth = 1;
+  // left loop
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.quadraticCurveTo(cx - s * 1.5, cy - s, cx - s * 1.1, cy);
+  ctx.quadraticCurveTo(cx - s * 1.5, cy + s * 0.8, cx, cy);
+  ctx.fill(); ctx.stroke();
+  // right loop
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.quadraticCurveTo(cx + s * 1.5, cy - s, cx + s * 1.1, cy);
+  ctx.quadraticCurveTo(cx + s * 1.5, cy + s * 0.8, cx, cy);
+  ctx.fill(); ctx.stroke();
+  // tails
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx - s * 0.55, cy + s * 1.5);
+  ctx.lineTo(cx - s * 0.12, cy + s * 1.3);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + s * 0.55, cy + s * 1.5);
+  ctx.lineTo(cx + s * 0.12, cy + s * 1.3);
+  ctx.closePath(); ctx.fill();
+  if (striped) {
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = Math.max(1, s * 0.16);
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx + i * s * 0.5 - s * 0.2, cy - s * 0.45);
+      ctx.lineTo(cx + i * s * 0.5 + s * 0.2, cy + s * 0.45);
+      ctx.stroke();
+    }
+  }
+  // knot
+  ctx.beginPath();
+  ctx.fillStyle = color;
+  ctx.arc(cx, cy, s * 0.3, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+/* Lit wire-frame deer silhouette (warm bulb outline, like the real product) */
+function drawDeer(ctx, x, y, w, h, { facingLeft, isBaby, hasAntlers }) {
+  ctx.save();
+  if (facingLeft) { ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.translate(-x, -y); }
+  const bodyTop = y + h * (isBaby ? 0.42 : 0.34);
+  const bodyH = h * (isBaby ? 0.3 : 0.32);
+  const bodyW = w * 0.62;
+  const bx = x + w * 0.06;
+  ctx.strokeStyle = "#fff3b0";
+  ctx.lineWidth = Math.max(1.8, w * 0.045);
+  // body
+  ctx.beginPath();
+  ctx.ellipse(bx + bodyW / 2, bodyTop + bodyH / 2, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  // legs
+  ctx.beginPath();
+  for (const t of [0.2, 0.42, 0.62, 0.84]) {
+    ctx.moveTo(bx + bodyW * t, bodyTop + bodyH * 0.85);
+    ctx.lineTo(bx + bodyW * t, y + h * 0.97);
+  }
+  ctx.stroke();
+  // neck + head
+  const nx = bx + bodyW * 0.92, ny = bodyTop + bodyH * 0.15;
+  ctx.beginPath();
+  ctx.moveTo(nx, ny);
+  ctx.lineTo(x + w * 0.82, y + h * (isBaby ? 0.26 : 0.16));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(x + w * 0.86, y + h * (isBaby ? 0.22 : 0.13), w * 0.09, h * 0.05, -0.4, 0, Math.PI * 2);
+  ctx.stroke();
+  // antlers — bucks only
+  if (hasAntlers) {
+    ctx.beginPath();
+    const ax = x + w * 0.84, ay = y + h * 0.1;
+    ctx.moveTo(ax, ay); ctx.lineTo(ax - w * 0.06, y + h * 0.02);
+    ctx.moveTo(ax - w * 0.04, y + h * 0.06); ctx.lineTo(ax - w * 0.13, y + h * 0.04);
+    ctx.moveTo(ax, ay); ctx.lineTo(ax + w * 0.07, y + h * 0.01);
+    ctx.stroke();
+  }
+  // bulbs along the body outline
+  ctx.fillStyle = "#ffd76a";
+  for (let i = 0; i < 12; i++) {
+    const a0 = (i / 12) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(bx + bodyW / 2 + Math.cos(a0) * bodyW / 2, bodyTop + bodyH / 2 + Math.sin(a0) * bodyH / 2, Math.max(1.2, w * 0.028), 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }
