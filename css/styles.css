@@ -179,6 +179,42 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 #meas-add-drawer { display: none; margin-top: 10px; }
 #meas-add-drawer.open { display: block; }
 
+/* roof complexity */
+.complexity-box {
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px; margin: 12px 0;
+}
+.cx {
+  display: flex; flex-direction: column; align-items: flex-start;
+  border: 2px solid var(--line); text-align: left; padding: 8px 12px; min-width: 150px;
+}
+.cx small { font-weight: 400; }
+.cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
+
+/* peak calculator */
+.peak-calc {
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px; margin: 12px 0;
+}
+.peak-calc summary { cursor: pointer; color: var(--gold); }
+.peak-metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px; margin: 10px 0 4px;
+}
+.peak-metrics div {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px;
+}
+.peak-metrics span { display: block; font-size: 11px; color: var(--muted); }
+.peak-metrics b { font-size: 19px; }
+.peak-metrics b.gold { color: var(--gold); }
+.peak-tag {
+  background: rgba(245,185,66,.18); color: var(--gold);
+  border-radius: 4px; padding: 1px 5px; font-size: 10px;
+}
+td .meas-base { width: 80px; }
+#pg-peak input { width: 100%; }
+
 /* mockup */
 .mockup-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
 .mockup-compare figure { margin: 0; }

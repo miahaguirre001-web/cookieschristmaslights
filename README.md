@@ -75,14 +75,46 @@ Export/Import to back up a season's rates.
 
 Seeded from `2026 Christmas Lights Price Guide.xlsx` (July 2026).
 
+## Roof complexity & the peak calculator
+
+**Roof complexity is one setting per property**, not per zone — a house can't
+be Easy and Hard at the same time. The AI estimates the roof pitch, classifies
+it (Easy under 4/12 · In-Between 4–6/12 · Hard 7/12+, matching the price
+guide), and shows its reasoning. Changing the setting in the Measurements
+section instantly re-prices every roofline zone. Ridge and side rooflines keep
+their own rates and are unaffected.
+
+**The peak calculator** solves the least reliable measurement in the tool.
+Diagonal rake lengths read short in a photo because of foreshortening; a
+gable's *horizontal base* does not. So the AI reports the base width and the
+tool derives both rake edges:
+
+```
+height = company peak table (base width → height)
+side   = √((base ÷ 2)² + height²)
+```
+
+Peak-derived rows are tagged **peak calc** in the measurements table, and you
+edit the *base width* — the rake length re-derives automatically, including
+after calibration. There's also a standalone calculator in the Measurements
+section for gables you want to add by hand.
+
+The height table is the office's rule of thumb and is **editable in the
+Pricing Guide** (with the implied pitch shown for each row), so it's never
+hard-coded.
+
 ## Tests
 
 ```
-node tests/pricing.test.js
+node tests/pricing.test.js     # 24 assertions
+node tests/geometry.test.js    # 46 assertions
 ```
 
-24 assertions covering the strand math, garland rounding, job minimum, pillar
-wraps, blank-price refusal, upcharges, and additive migration.
+Pricing: strand math, garland rounding, job minimum, pillar wraps,
+blank-price refusal, upcharges, additive migration.
+Geometry: peak table lookup and side lengths verified against the office
+calculator, edge cases, custom tables, complexity classification, and the
+zone→price mapping (including the garage-eave case).
 
 ## Architecture
 

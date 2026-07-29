@@ -139,6 +139,20 @@
       </div>
     </div>
 
+    <div id="roof-complexity"></div>
+
+    <details class="peak-calc">
+      <summary><b>Peak calculator</b> — base width → rake lengths</summary>
+      <p class="hint">Measuring a gable's diagonal from a photo is unreliable; its horizontal base isn't. Enter the base and this derives both rake edges using the company peak table.</p>
+      <div class="row">
+        <label>Base width (ft) <input type="number" id="peak-base" step="0.5" min="0" value="20" style="width:100px"></label>
+        <label>Label <input type="text" id="peak-label" placeholder="front gable" style="width:150px"></label>
+        <label><input type="checkbox" id="peak-both"> Both rakes</label>
+        <button id="peak-add" class="primary">Add as measurement</button>
+      </div>
+      <div id="peak-out"></div>
+    </details>
+
     <div id="meas-table"></div>
     <div id="meas-warnings"></div>
 
@@ -207,6 +221,9 @@
     </div>
     <h3>Rules</h3>
     <div id="pg-rules"></div>
+    <h3>Peak height table</h3>
+    <p class="hint">The gable-height rule of thumb used by the peak calculator. For a base width up to the listed value, use the listed peak height. The last row (blank width) covers anything larger.</p>
+    <div id="pg-peak"></div>
     <h3>Items</h3>
     <div id="pg-items"></div>
   </section>
@@ -229,6 +246,7 @@
 <script src="js/04-property.js"></script>
 <script src="js/05-canvas.js"></script>
 <script src="js/06-analysis.js"></script>
+<script src="js/06b-geometry.js"></script>
 <script src="js/07-measurements.js"></script>
 <script src="js/08-pricing.js"></script>
 <script src="js/09-pricing-guide.js"></script>

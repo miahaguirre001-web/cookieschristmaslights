@@ -35,18 +35,28 @@ ${MEASUREMENT_ANCHORS}
 
 Property type: ${project.propertyType}. ${project.aiNote ? "Estimator note: " + project.aiNote : ""}
 
+ROOF COMPLEXITY — classify the PROPERTY ONCE (not per zone). Judge the dominant roof pitch of the main house:
+- "easy": flat roof or very shallow pitch (under ~4/12). Walkable, no steep faces.
+- "mid": moderate pitch, roughly 4/12 to 6/12. The typical suburban roof.
+- "hard": steep, 7/12 or greater; and/or complex cut-up roof with multiple valleys, dormers, or steep gables requiring extra rigging.
+Also estimate "roofPitchPer12" (inches of rise per 12 inches of run) for the main roof faces, and give a one-line "complexityReason" citing what you SEE (e.g. "gable rises ~10 ft over a 12 ft half-span ≈ 10/12").
+
+GABLE / RAKE ZONES — DO NOT estimate the diagonal length directly. Foreshortening makes diagonals unreliable in a photo. Instead, for any mark that runs along a gable rake, peak, or dormer slope, report "baseWidthFt": the HORIZONTAL width of that gable at its base (the span the triangle sits on). We derive the rake length from it with the company's peak table. If the mark covers BOTH rakes of one gable, set "coversBothRakes": true.
+
 Return ONLY compact JSON, no prose:
 {
  "measurements": [
-   {"markId":"mark_01","zoneLabel":"front eave","itemKey":"roofline_easy|roofline_mid|roofline_hard|roofline_side|ridge|icicle|c7_window|ground_stake|bush_strand|tree_strand|pillar_strand|garland_strand","lengthFt":46.0,"confidence":0.82,"basis":"≈5.1 door-heights wide; cross-checked against garage door"}
+   {"markId":"mark_01","zoneKind":"eave|rake|ridge|side|dormer|garage|window|icicle|ground|bush|shrub|tree|pillar|garland","zoneLabel":"front eave","lengthFt":46.0,"baseWidthFt":null,"coversBothRakes":false,"confidence":0.82,"basis":"≈5.1 door-heights wide; cross-checked against garage door"}
  ],
  "roofComplexity": "easy|mid|hard",
+ "roofPitchPer12": 8,
+ "complexityReason": "steep front gable, rise ~10 ft over 12 ft half-span",
  "stories": 1,
  "installNotes": ["C9 bulbs along full front eave, ~46 ft"],
  "warnings": ["anything the estimator should verify"],
  "overallConfidence": 0.8
 }
-For bush/shrub AREA marks: report estimated plant height and width in ft in "basis", classify sizeClass small|medium|large|xl, and set lengthFt to estimated wrap footage. Add "sizeClass" field on those rows. Keep every note under 15 words. Be terse.`;
+Rules for the fields: set "zoneKind" on EVERY row — it decides which price applies, so a garage eave must be "garage" (a roofline), never "window". For rake/gable/dormer-slope rows set baseWidthFt and leave lengthFt null. For every other row set lengthFt and leave baseWidthFt null. For bush/shrub AREA marks: estimate plant height and width in ft in "basis", add "sizeClass":"small|medium|large|xl", and set lengthFt to estimated wrap footage. Keep every note under 15 words. Be terse.`;
 }
 
 /* Concrete physical descriptions so the image model renders a real
@@ -133,27 +143,59 @@ function renderHumanMarkupSnapshot() {
 }
 
 function applyAnalysis(parsed) {
+  const cfg = loadPricingConfig();
+  const table = cfg.rules.peakHeightTable;
+
+  // One complexity for the whole property. Prefer an explicit pitch when the
+  // model gave one, since that's checkable; fall back to its label.
+  const fromPitch = complexityFromPitch(parsed.roofPitchPer12);
+  const complexity = ROOF_COMPLEXITY[parsed.roofComplexity]
+    ? parsed.roofComplexity
+    : (fromPitch || "mid");
+
   const rows = [];
   for (const m of parsed.measurements || []) {
-    if (!m.markId || typeof m.lengthFt !== "number") continue;
+    if (!m.markId) continue;
     const mark = project.marks.find((x) => x.id === m.markId);
     if (mark && m.sizeClass) mark.sizeClass = m.sizeClass;
+
+    const zoneKind = m.zoneKind || inferZoneKind(mark);
+    let value = null, basis = m.basis || "", peak = null;
+
+    // Gable/rake: derive the diagonal from the base width (peak calculator)
+    if (typeof m.baseWidthFt === "number" && m.baseWidthFt > 0) {
+      peak = peakSides(m.baseWidthFt, table);
+      value = m.coversBothRakes ? peak.total : peak.side;
+      basis = `${m.baseWidthFt} ft base → peak ${peak.height} ft → ${m.coversBothRakes ? "both rakes" : "rake"} ${value} ft` +
+              (basis ? ` · ${basis}` : "");
+    } else if (typeof m.lengthFt === "number") {
+      value = m.lengthFt;
+    } else {
+      continue;   // nothing usable
+    }
+
+    const itemKey = itemKeyForZone(zoneKind, complexity) || defaultItemKey(mark);
     rows.push({
       id: "meas_" + m.markId,
       markId: m.markId,
+      zoneKind,
       zoneLabel: m.zoneLabel || mark?.zoneLabel || "run",
-      itemKey: m.itemKey || defaultItemKey(mark),
-      value: round1(m.lengthFt),
-      rawAiValue: round1(m.lengthFt),
+      itemKey,
+      value: round1(value),
+      rawAiValue: round1(value),
+      baseWidthFt: peak ? round1(m.baseWidthFt) : null,
+      coversBothRakes: !!m.coversBothRakes,
       unit: "lf",
       source: "AI Estimated",
       confidence: m.confidence ?? 0.5,
-      basis: m.basis || "",
+      basis,
       sizeClass: m.sizeClass || mark?.sizeClass || null,
     });
   }
   project.analysis = {
-    roofComplexity: parsed.roofComplexity || "mid",
+    roofComplexity: complexity,
+    roofPitchPer12: parsed.roofPitchPer12 ?? null,
+    complexityReason: parsed.complexityReason || "",
     stories: parsed.stories || 1,
     installNotes: parsed.installNotes || [],
     warnings: parsed.warnings || [],
@@ -171,11 +213,33 @@ function applyAnalysis(parsed) {
 
 function defaultItemKey(mark) {
   if (!mark) return "roofline_mid";
-  if (mark.kind === "area") return mark.areaKind === "bush" ? "bush_strand" : "bush_strand";
+  if (mark.kind === "area") return "bush_strand";
   if (mark.lightType === "icicle") return "icicle";
-  if (mark.lightType === "c7") return "c7_window";
   if (mark.zoneLabel === "ground run") return "ground_stake";
+  if (mark.lightType === "c7") return "c7_window";
   return "roofline_mid";
+}
+
+/* Fall back to the mark's own metadata when the model omits zoneKind. */
+function inferZoneKind(mark) {
+  if (!mark) return "eave";
+  if (mark.featureType) {
+    const f = mark.featureType;
+    if (f === "garage_eave") return "garage";
+    if (["eave", "rake", "peak", "ridge", "dormer", "window", "bush", "shrub", "tree"].includes(f)) return f;
+    if (f === "walkway" || f === "driveway") return "ground";
+    if (f === "column" || f === "railing") return "pillar";
+  }
+  if (mark.kind === "area") return mark.areaKind === "shrub" ? "shrub" : "bush";
+  if (mark.kind === "addon") return "pillar";
+  const l = (mark.zoneLabel || "").toLowerCase();
+  if (l.includes("garage")) return "garage";
+  if (l.includes("ridge")) return "ridge";
+  if (l.includes("rake") || l.includes("gable")) return "rake";
+  if (l.includes("ground") || l.includes("walk") || l.includes("drive")) return "ground";
+  if (l.includes("window")) return "window";
+  if (mark.lightType === "icicle") return "icicle";
+  return "eave";
 }
 
 /* Rule 12, second enforcement: plain warnings BEFORE numbers reach pricing */

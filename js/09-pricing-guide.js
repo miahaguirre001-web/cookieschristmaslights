@@ -48,6 +48,8 @@ function renderPricingGuide() {
     })
   );
 
+  renderPeakTable(cfg);
+
   const itemsHost = document.getElementById("pg-items");
   itemsHost.innerHTML = `
     <table>
@@ -78,6 +80,48 @@ function renderPricingGuide() {
       tr.classList.toggle("needs-price", it.rate == null);
     };
     tr.querySelectorAll("input,select").forEach((el) => el.addEventListener("change", commit));
+  });
+}
+
+function renderPeakTable(cfg) {
+  const host = document.getElementById("pg-peak");
+  if (!host) return;
+  const table = cfg.rules.peakHeightTable || DEFAULT_PEAK_TABLE;
+  host.innerHTML = `
+    <table>
+      <thead><tr><th>Base width up to (ft)</th><th>Peak height (ft)</th><th>Implied pitch</th><th></th></tr></thead>
+      <tbody>${table.map((row, i) => {
+        const mid = row.maxBase == null ? null : row.maxBase;
+        const pitch = mid ? ((row.height / (mid / 2)) * 12).toFixed(1) + "/12" : "—";
+        return `<tr data-i="${i}">
+          <td><input type="number" step="1" class="pk-base" value="${row.maxBase ?? ""}" placeholder="(anything larger)"></td>
+          <td><input type="number" step="0.5" class="pk-height" value="${row.height}"></td>
+          <td><small>${pitch}</small></td>
+          <td><button class="pk-del secondary">✕</button></td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <button id="pk-add" class="secondary" style="margin-top:8px">＋ Add row</button>`;
+
+  const commit = () => {
+    const rows = [...host.querySelectorAll("tr[data-i]")].map((tr) => {
+      const b = tr.querySelector(".pk-base").value;
+      return { maxBase: b === "" ? null : parseFloat(b), height: parseFloat(tr.querySelector(".pk-height").value) || 0 };
+    }).filter((r) => r.height > 0);
+    const cfg2 = loadPricingConfig();
+    cfg2.rules.peakHeightTable = rows;
+    savePricingConfig(cfg2);
+    renderPeakTable(cfg2);
+  };
+  host.querySelectorAll("input").forEach((el) => el.addEventListener("change", commit));
+  host.querySelectorAll(".pk-del").forEach((b) =>
+    b.addEventListener("click", () => { b.closest("tr").remove(); commit(); })
+  );
+  document.getElementById("pk-add").addEventListener("click", () => {
+    const cfg2 = loadPricingConfig();
+    cfg2.rules.peakHeightTable = [...(cfg2.rules.peakHeightTable || []), { maxBase: 60, height: 20 }];
+    savePricingConfig(cfg2);
+    renderPeakTable(cfg2);
   });
 }
 
