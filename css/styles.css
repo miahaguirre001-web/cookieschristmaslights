@@ -89,6 +89,10 @@ button.link-btn { background: none; border: none; color: var(--gold); text-decor
   background: rgba(255,152,0,.12); border: 1px solid var(--warn); color: var(--warn);
   border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px;
 }
+.ok-banner {
+  background: rgba(76,175,80,.12); border: 1px solid var(--ok); color: var(--ok);
+  border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px;
+}
 .error-box {
   background: rgba(239,83,80,.12); border: 1px solid var(--err); color: var(--err);
   border-radius: 8px; padding: 10px 12px; margin: 10px 0; font-size: 13px;

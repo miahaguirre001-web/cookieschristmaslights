@@ -45,6 +45,7 @@ GABLE / RAKE ZONES — DO NOT estimate the diagonal length directly. Foreshorten
 
 Return ONLY compact JSON, no prose:
 {
+ "houseFrontWidthFt": 52.0,
  "measurements": [
    {"markId":"mark_01","zoneKind":"eave|rake|ridge|side|dormer|garage|window|icicle|ground|bush|shrub|tree|pillar|garland","zoneLabel":"front eave","lengthFt":46.0,"baseWidthFt":null,"coversBothRakes":false,"confidence":0.82,"basis":"≈5.1 door-heights wide; cross-checked against garage door"}
  ],
@@ -56,6 +57,7 @@ Return ONLY compact JSON, no prose:
  "warnings": ["anything the estimator should verify"],
  "overallConfidence": 0.8
 }
+"houseFrontWidthFt" = your estimate of the FULL width of the street-facing facade of the main house, wall-to-wall including any attached garage (this is cross-checked against satellite data, so derive it carefully from the anchors).
 Rules for the fields: set "zoneKind" on EVERY row — it decides which price applies, so a garage eave must be "garage" (a roofline), never "window". For rake/gable/dormer-slope rows set baseWidthFt and leave lengthFt null. For every other row set lengthFt and leave baseWidthFt null. For bush/shrub AREA marks: estimate plant height and width in ft in "basis", add "sizeClass":"small|medium|large|xl", and set lengthFt to estimated wrap footage.
 SPEED IS CRITICAL: output single-line compact JSON with no whitespace. "basis" max 8 words, notes max 10 words, warnings max 2 items. Do not repeat or explain anything.`;
 }
@@ -122,6 +124,69 @@ async function runAnalysis(onStatus = () => {}) {
 
   // Never mutate project data until validation passes — done. Now commit:
   applyAnalysis(parsed);
+
+  // Satellite auto-calibration: deterministic scale from known ft/pixel.
+  // Non-fatal — analysis stands on its own if this can't run.
+  try {
+    await autoCalibrateFromSatellite(onStatus);
+  } catch (e) {
+    console.warn("Satellite calibration skipped:", e.message);
+  }
+  scheduleSave();
+  // Re-fire analysis-complete: the measurements table (and its satellite
+  // banner) render on this event, and the satCheck result lands AFTER the
+  // first dispatch inside applyAnalysis.
+  window.dispatchEvent(new CustomEvent("analysis-complete"));
+  window.dispatchEvent(new CustomEvent("measurements-changed"));
+}
+
+/* ---- Satellite auto-calibration ----
+ * The satellite tile's ft/pixel is exact (see 06b-geometry.js). The AI only
+ * has to TRACE the roof outline — all length math is ours. The traced front
+ * width then rescales every AI-estimated measurement, exactly like the
+ * manual door-height calibration but with zero user effort. */
+const SAT_FOOTPRINT_PROMPT = `Top-down satellite photo. Trace the roof outline of the MAIN building nearest the image center as a polygon of 4-10 points, normalized 0-1 (x right, y down). Include attached garages; exclude detached buildings, driveways, trees.
+Identify which polygon edge faces the street (the road strip). "frontEdge" is the 0-based index i meaning the edge from point i to point i+1 (wrapping).
+Return ONLY single-line compact JSON: {"footprint":[{"x":0.42,"y":0.38},...],"frontEdge":0,"confidence":0.0-1.0}`;
+
+async function autoCalibrateFromSatellite(onStatus = () => {}) {
+  if (!project.satellite || typeof project.lat !== "number") return;
+  const aiFront = project.analysis?.houseFrontWidthFt;
+  if (!(aiFront > 0)) return;
+
+  onStatus("Checking scale against satellite…");
+  const text = await callClaude({
+    system: "You trace building footprints precisely. Respond with valid JSON only.",
+    messages: [{ role: "user", content: [imageBlock(project.satellite), { type: "text", text: SAT_FOOTPRINT_PROMPT }] }],
+    maxTokens: 500,
+    model: FAST_MODEL,
+  }, onStatus);
+  const parsed = validateShape(extractJSON(text), { footprint: "array", confidence: "number" }, "Satellite footprint");
+
+  const fp = computeSatFootprint(parsed.footprint, parsed.frontEdge, project.lat);
+  if (!fp) return;
+
+  const factor = calibrationFactorFrom(fp.frontFt, aiFront);
+  const satCheck = {
+    satFrontFt: fp.frontFt,
+    aiFrontFt: Math.round(aiFront * 10) / 10,
+    perimeterFt: fp.perimeterFt,
+    confidence: parsed.confidence ?? 0.5,
+    factor,
+    applied: false,
+  };
+
+  if (factor !== null && (parsed.confidence ?? 0) >= 0.5) {
+    applyCalibrationFactor(factor, "satellite");
+    project.calibration = { source: "satellite", factor, satFrontFt: fp.frontFt, aiFt: aiFront };
+    satCheck.applied = true;
+  } else if (factor === null) {
+    project.analysis.warnings = [
+      ...(project.analysis.warnings || []),
+      `Satellite front width (${fp.frontFt} ft) disagrees strongly with the photo estimate (${satCheck.aiFrontFt} ft) — verify measurements or calibrate with a door height.`,
+    ];
+  }
+  project.analysis.satCheck = satCheck;
 }
 
 function initAnalysis() {
@@ -206,9 +271,11 @@ function applyAnalysis(parsed) {
     roofPitchPer12: parsed.roofPitchPer12 ?? null,
     complexityReason: parsed.complexityReason || "",
     stories: parsed.stories || 1,
+    houseFrontWidthFt: typeof parsed.houseFrontWidthFt === "number" ? parsed.houseFrontWidthFt : null,
     installNotes: parsed.installNotes || [],
     warnings: parsed.warnings || [],
     overallConfidence: parsed.overallConfidence ?? 0.5,
+    satCheck: null,
     at: Date.now(),
   };
   project.measurements = rows;

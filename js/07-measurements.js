@@ -19,23 +19,8 @@ function initMeasurements() {
     const real = parseFloat(document.getElementById("cal-real").value);
     const marked = parseFloat(document.getElementById("cal-ai").value);
     if (!(real > 0) || !(marked > 0)) { alert("Enter both the AI value and the real measurement."); return; }
-    const factor = real / marked;
-    const table = loadPricingConfig().rules.peakHeightTable;
-    for (const r of project.measurements) {
-      if (r.source !== "AI Estimated") continue;
-      if (r.baseWidthFt) {
-        // Peak rows: rescale the BASE, then re-derive — otherwise the rake
-        // length and its stated base would disagree.
-        const p = peakSides(r.baseWidthFt * factor, table);
-        r.baseWidthFt = p.base;
-        r.value = r.coversBothRakes ? p.total : p.side;
-        r.basis = `${p.base} ft base → peak ${p.height} ft → ${r.coversBothRakes ? "both rakes" : "one rake"} ${r.value} ft (calibrated)`;
-      } else {
-        r.value = Math.round(r.value * factor * 10) / 10;
-      }
-      r.confidence = Math.min(0.95, r.confidence + 0.15);
-    }
-    project.calibration = { realFt: real, aiFt: marked, factor };
+    applyCalibrationFactor(real / marked, "manual");
+    project.calibration = { realFt: real, aiFt: marked, factor: real / marked, source: "manual" };
     scheduleSave();
     renderMeasurements();
     window.dispatchEvent(new CustomEvent("measurements-changed"));
@@ -59,6 +44,25 @@ function initMeasurements() {
 
   populateItemSelect(document.getElementById("meas-add-item"));
   initPeakCalc();
+}
+
+/* Rescale every AI-estimated row by a factor. Used by BOTH the manual
+ * door-height calibration and the automatic satellite calibration. Peak rows
+ * rescale their BASE then re-derive, so base and rake length always agree. */
+function applyCalibrationFactor(factor, sourceLabel) {
+  const table = loadPricingConfig().rules.peakHeightTable;
+  for (const r of project.measurements) {
+    if (r.source !== "AI Estimated") continue;
+    if (r.baseWidthFt) {
+      const p = peakSides(r.baseWidthFt * factor, table);
+      r.baseWidthFt = p.base;
+      r.value = r.coversBothRakes ? p.total : p.side;
+      r.basis = `${p.base} ft base → peak ${p.height} ft → ${r.coversBothRakes ? "both rakes" : "one rake"} ${r.value} ft (${sourceLabel} calibrated)`;
+    } else {
+      r.value = Math.round(r.value * factor * 10) / 10;
+    }
+    r.confidence = Math.min(0.95, (r.confidence ?? 0.5) + 0.15);
+  }
 }
 
 function populateItemSelect(sel) {
@@ -159,9 +163,25 @@ function initPeakCalc() {
   calc();
 }
 
+function renderSatBanner() {
+  const host = document.getElementById("sat-banner");
+  if (!host) return;
+  const sc = project.analysis?.satCheck;
+  if (!sc) {
+    host.innerHTML = (project.analysis && !project.satellite)
+      ? `<div class="warn-banner">No satellite image — measurements rely on the photo alone. Use "Find" on the address to import satellite for automatic scale calibration, or calibrate with a door height below.</div>`
+      : "";
+    return;
+  }
+  host.innerHTML = sc.applied
+    ? `<div class="ok-banner">📐 <b>Satellite-calibrated.</b> Roof front measures <b>${sc.satFrontFt} ft</b> on satellite (exact ft/pixel math); photo estimate was ${sc.aiFrontFt} ft — all AI measurements rescaled ×${sc.factor}.</div>`
+    : `<div class="warn-banner">📐 Satellite check ran but was NOT applied (front ${sc.satFrontFt} ft vs photo ${sc.aiFrontFt} ft, trace confidence ${Math.round((sc.confidence || 0) * 100)}%). Verify key lengths or calibrate with a door height.</div>`;
+}
+
 function renderMeasurements() {
   renderStaleNotice();
   renderComplexityPanel();
+  renderSatBanner();
   const host = document.getElementById("meas-table");
   const rows = project.measurements;
   if (!rows.length) {

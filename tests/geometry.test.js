@@ -5,6 +5,7 @@
 const {
   DEFAULT_PEAK_TABLE, peakHeightForBase, peakSides,
   complexityFromPitch, itemKeyForZone, ROOFLINE_ZONE_KINDS,
+  satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
 } = require("../js/06b-geometry.js");
 
 let pass = 0, fail = 0;
@@ -108,6 +109,54 @@ console.log("Complexity re-map covers every roofline zone kind");
   // a house can never be easy AND hard: same kind+complexity is deterministic
   const a = kinds.map((k) => itemKeyForZone(k, "hard"));
   eq("one complexity → one roofline rate for all zones", new Set(a).size, 1);
+}
+
+console.log("Satellite scale math (exact Google ground resolution)");
+{
+  // At the equator, zoom 20: 156543.03392 / 2^20 = 0.14929 m per logical px
+  // × 640 px × 3.28084 = 313.49 ft full-image width
+  approx("equator: image spans 313.5 ft", satelliteFtPerNorm(0), 313.49, 0.2);
+  // cos(60°) = 0.5 → exactly half
+  approx("lat 60°: half the span", satelliteFtPerNorm(60), 313.49 / 2, 0.2);
+  // typical US lat 42°
+  approx("lat 42°: ≈233 ft span", satelliteFtPerNorm(42), 313.49 * Math.cos(42 * Math.PI / 180), 0.3);
+  // a 50 ft house at lat 42 occupies 50/233 ≈ 0.215 of the image
+  const ftPer = satelliteFtPerNorm(42);
+  approx("normalized 0.215 ≈ 50 ft at lat 42", satDistFt({ x: 0.4, y: 0.5 }, { x: 0.615, y: 0.5 }, 42), 0.215 * ftPer, 0.01);
+  approx("diagonal distance uses hypot", satDistFt({ x: 0, y: 0 }, { x: 0.3, y: 0.4 }, 0), 0.5 * 313.49, 0.3);
+}
+
+console.log("Footprint → front width");
+{
+  const lat = 42;
+  const ftPer = satelliteFtPerNorm(lat);
+  // 52ft × 30ft rectangle centered in frame, front edge at the bottom (edge 2→3)
+  const w = 52 / ftPer, h = 30 / ftPer;
+  const fp = [
+    { x: 0.5 - w / 2, y: 0.5 - h / 2 }, // 0 top-left
+    { x: 0.5 + w / 2, y: 0.5 - h / 2 }, // 1 top-right
+    { x: 0.5 + w / 2, y: 0.5 + h / 2 }, // 2 bottom-right
+    { x: 0.5 - w / 2, y: 0.5 + h / 2 }, // 3 bottom-left
+  ];
+  const r = computeSatFootprint(fp, 2, lat);   // edge 2→3 is the 52 ft front
+  approx("front edge = 52 ft", r.frontFt, 52, 0.2);
+  approx("perimeter = 164 ft", r.perimeterFt, 164, 0.5);
+  // bad frontEdge index falls back to longest edge (also 52 ft here)
+  const r2 = computeSatFootprint(fp, 99, lat);
+  approx("invalid front index → longest edge", r2.frontFt, 52, 0.2);
+  eq("degenerate polygon rejected", computeSatFootprint([{ x: 0, y: 0 }, { x: 1, y: 1 }], 0, lat), null);
+}
+
+console.log("Calibration factor guard rails");
+{
+  approx("sat 52 / ai 44 → ×1.182", calibrationFactorFrom(52, 44), 1.182, 0.001);
+  eq("perfect agreement → ×1", calibrationFactorFrom(50, 50), 1);
+  eq("implausibly small building rejected", calibrationFactorFrom(10, 44), null);
+  eq("implausibly huge building rejected", calibrationFactorFrom(250, 44), null);
+  eq("wild disagreement (×3) rejected", calibrationFactorFrom(150, 50), null);
+  eq("wild disagreement (×0.3) rejected", calibrationFactorFrom(20, 66), null);
+  eq("zero/missing input rejected", calibrationFactorFrom(0, 44), null);
+  eq("edge of band accepted (×2.4)", calibrationFactorFrom(120, 50) !== null, true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

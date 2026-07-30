@@ -103,9 +103,65 @@ function itemKeyForZone(zoneKind, complexity) {
  * estimator changes the property's complexity. */
 const ROOFLINE_ZONE_KINDS = new Set(["eave", "rake", "gable", "peak", "dormer", "garage"]);
 
+/* ---- Satellite scale math ----
+ * Google Static Maps ground resolution is EXACT and latitude-dependent:
+ *   meters per logical pixel = 156543.03392 × cos(lat) / 2^zoom
+ * Our satellite import is zoom 20, size 640 logical px (scale=2 doubles the
+ * pixels but not the coverage). So a normalized 0–1 distance across the
+ * image converts to real feet with NO AI involved — this is the same
+ * principle roof-measurement services are built on. */
+const SAT_ZOOM = 20;
+const SAT_LOGICAL_PX = 640;
+const M_TO_FT = 3.28084;
+
+function satelliteFtPerNorm(lat, zoom = SAT_ZOOM, logicalPx = SAT_LOGICAL_PX) {
+  const mPerPx = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
+  return logicalPx * mPerPx * M_TO_FT;   // feet spanned by the full image width
+}
+
+/* Distance in feet between two normalized points on the satellite image
+ * (square image → same scale on both axes). */
+function satDistFt(p1, p2, lat) {
+  return Math.hypot(p2.x - p1.x, p2.y - p1.y) * satelliteFtPerNorm(lat);
+}
+
+/* Given a footprint polygon + which edge faces the street, return real-world
+ * sizes. Falls back to the longest edge when frontIdx is missing/invalid. */
+function computeSatFootprint(footprint, frontIdx, lat) {
+  if (!Array.isArray(footprint) || footprint.length < 3) return null;
+  const n = footprint.length;
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    edges.push({ i, ft: satDistFt(footprint[i], footprint[(i + 1) % n], lat) });
+  }
+  const perimeterFt = edges.reduce((s, e) => s + e.ft, 0);
+  let front = (Number.isInteger(frontIdx) && frontIdx >= 0 && frontIdx < n)
+    ? edges[frontIdx]
+    : null;
+  if (!front || front.ft < 8) {
+    front = edges.reduce((a, b) => (b.ft > a.ft ? b : a));
+  }
+  return {
+    frontFt: Math.round(front.ft * 10) / 10,
+    perimeterFt: Math.round(perimeterFt * 10) / 10,
+    edgesFt: edges.map((e) => Math.round(e.ft * 10) / 10),
+  };
+}
+
+/* Guard rails for the auto-calibration factor: outside this band the
+ * footprint read is more likely wrong than the analysis. */
+function calibrationFactorFrom(satFrontFt, aiFrontFt) {
+  if (!(satFrontFt > 0) || !(aiFrontFt > 0)) return null;
+  if (satFrontFt < 15 || satFrontFt > 200) return null;   // implausible building
+  const factor = satFrontFt / aiFrontFt;
+  if (factor < 0.4 || factor > 2.5) return null;          // disagreement too wild
+  return Math.round(factor * 1000) / 1000;
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     DEFAULT_PEAK_TABLE, peakHeightForBase, peakSides,
     complexityFromPitch, itemKeyForZone, ROOF_COMPLEXITY, ROOFLINE_ZONE_KINDS,
+    satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
   };
 }
