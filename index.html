@@ -123,7 +123,29 @@
       <small>Drag to place · corner handle resizes · ✕ deletes. Pillars is a light <b>design</b> — it wraps what's already there.</small>
     </div>
 
-    <!-- e) the canvas -->
+    <!-- e) the canvas, with framing controls above it -->
+    <div class="frame-panel">
+      <button id="frame-toggle" class="primary">📐 Adjust framing — centre the house</button>
+      <div id="frame-box" style="display:none">
+        <p class="hint">Pan and zoom until the customer's house fills the frame. On Street View this re-aims the camera and fetches a brand-new full-resolution photo — it is <b>not</b> a crop, so nothing gets blurry. Frame first, then draw.</p>
+        <div class="frame-pad">
+          <div class="frame-row"><button data-frame="up" title="Tilt up">▲</button></div>
+          <div class="frame-row">
+            <button data-frame="left" title="Pan left">◀</button>
+            <button data-frame="out" title="Zoom out">−</button>
+            <button data-frame="in" title="Zoom in">+</button>
+            <button data-frame="right" title="Pan right">▶</button>
+          </div>
+          <div class="frame-row"><button data-frame="down" title="Tilt down">▼</button></div>
+        </div>
+        <div class="row">
+          <button id="frame-reset" class="secondary">Reset framing</button>
+          <span class="status" id="frame-status"></span>
+        </div>
+        <div id="frame-readout"></div>
+      </div>
+    </div>
+
     <div id="canvas-wrap" class="empty">
       <canvas id="markup-canvas"></canvas>
     </div>
@@ -308,6 +330,7 @@
 <script src="js/02-api.js"></script>
 <script src="js/03-state.js"></script>
 <script src="js/04-property.js"></script>
+<script src="js/04b-framing.js"></script>
 <script src="js/05-canvas.js"></script>
 <script src="js/06-analysis.js"></script>
 <script src="js/06b-geometry.js"></script>

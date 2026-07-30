@@ -213,6 +213,21 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 .cx small { font-weight: 400; }
 .cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
 
+/* framing controls */
+.frame-panel {
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px; margin: 12px 0;
+}
+#frame-box { margin-top: 10px; }
+.frame-pad { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 10px 0; }
+.frame-row { display: flex; gap: 6px; }
+.frame-pad button {
+  width: 48px; height: 40px; font-size: 17px; font-weight: 700;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.frame-pad button:hover { border-color: var(--gold); color: var(--gold); }
+#frame-readout { margin-top: 6px; }
+
 /* target house callout */
 .target-callout { margin: 10px 0; }
 .target-unset, .target-set {

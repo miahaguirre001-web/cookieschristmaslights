@@ -62,6 +62,10 @@ function initProperty() {
       fetchStreetView(project.lat, project.lng, baseHeading != null ? { heading: baseHeading } : {}),
       fetchSatellite(project.lat, project.lng, zoom),
     ]);
+    // Remember the auto-computed aim so the framing controls start from it
+    // and "Reset framing" can return to it.
+    project.baseHeading = baseHeading;
+    project.framing = null;
     if (sv.status === "fulfilled") await setProjectPhoto(sv.value, "streetview");
     if (sat.status === "fulfilled") { project.satellite = sat.value; project.satelliteZoom = +zoom; }
     renderSatelliteThumb();
@@ -129,12 +133,16 @@ function initProperty() {
 async function setProjectPhoto(dataUrl, source) {
   project.photo = dataUrl;
   project.photoSource = source;
+  // Marks and the target outline are stored in the OLD image's coordinates,
+  // so a new photo invalidates them — keeping them would misplace every line.
   project.marks = [];
+  project.targetRegion = null;
   project.analysis = null;
   project.measurements = [];
   project.mockups = [];
   touchMarks();
   window.dispatchEvent(new CustomEvent("photo-changed"));
+  window.dispatchEvent(new CustomEvent("target-changed", { detail: { dropped: 0 } }));
 }
 
 function renderSatelliteThumb() {

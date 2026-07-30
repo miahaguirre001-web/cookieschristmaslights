@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loadPricingConfig();          // seeds + migrates
   initProperty();
+  initFraming();
   initCanvas();
   initAutoDetect();
   initVoice();

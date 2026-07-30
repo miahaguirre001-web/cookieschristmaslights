@@ -47,7 +47,8 @@ AI calls and map imports need the functions.
 ## Using the tool (estimator workflow)
 
 **The fast path — Auto-Estimate.** Enter the address, hit **Find**,
-**circle the customer's house** on the photo, tick which
+**centre the customer's house** with the framing pad (and circle it if other
+houses are still in frame), tick which
 zones should be lit (roofline is on by default), and press
 **⚡ Run Auto-Estimate**. One click runs the whole chain:
 
@@ -59,7 +60,24 @@ detect → snap lines to real edges → AI verifies placement
 Then you glance at the result and send it. The manual tools stay underneath
 purely for corrections when automation misses.
 
-### Circle the house first (🎯 Target house)
+### Centre the house first (📐 Adjust framing)
+
+Street View aims at the address, not at the best photo — the house often ends
+up small, off to one side, behind a parked truck. Since the mock-up IS the
+front photo, a badly framed shot means a badly framed mock-up.
+
+The framing pad above the canvas pans, tilts and zooms. On a Street View
+photo each adjustment **re-shoots the frame at full 640×640** from the new
+angle — it is not a crop, so nothing gets blurry, and the house occupying more
+of the frame means more real pixels for both the mock-up and the AI's
+measurements. Uploaded photos can't be re-shot, so those crop-zoom instead and
+the tool says plainly that it costs resolution.
+
+Frame the house *before* drawing: a new photo invalidates marks and the target
+outline (they're stored in the old image's coordinates), so the tool clears
+them and warns you first.
+
+### Circle the house (🎯 Target house)
 
 Street View often frames two or three houses, and the customer's may sit at
 the *edge* of the shot while a neighbour sits dead centre. Without being told

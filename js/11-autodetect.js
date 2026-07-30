@@ -478,7 +478,7 @@ function renderTargetStatus() {
     ? `<div class="target-set">🎯 <b>Target house set.</b> Detection, measurements and the mock-up are limited to the outlined building.
         <button id="target-redo" class="link-btn">redraw</button> ·
         <button id="target-clear" class="link-btn">clear</button></div>`
-    : `<div class="target-unset">🎯 <b>Circle the customer's house first.</b> If more than one house is visible, the AI can pick the wrong one.
+    : `<div class="target-unset">🎯 <b>Make sure the AI knows which house.</b> Best: use <b>📐 Adjust framing</b> below to centre the customer's house in the shot — that also gives a sharper mock-up. If other houses are still in frame, circle the right one.
         <button id="target-draw" class="primary">Circle the house</button></div>`;
 
   const draw = document.getElementById("target-draw") || document.getElementById("target-redo");

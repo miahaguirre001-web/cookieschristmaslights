@@ -188,8 +188,9 @@ const geocodeAddress = (address) =>
   apiFetch(`/maps?op=geocode&address=${encodeURIComponent(address)}`);
 const fetchStreetView = (lat, lng, opts = {}) => {
   const q = new URLSearchParams({ op: "streetview", lat, lng });
-  if (opts.heading !== undefined) q.set("heading", opts.heading);
+  if (opts.heading !== undefined && opts.heading !== null) q.set("heading", opts.heading);
   if (opts.fov) q.set("fov", opts.fov);
+  if (opts.pitch !== undefined && opts.pitch !== null) q.set("pitch", opts.pitch);
   return apiFetch(`/maps?${q}`).then((d) => `data:${d.mimeType};base64,${d.image}`);
 };
 const fetchStreetViewMeta = (lat, lng) =>
