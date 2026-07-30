@@ -56,7 +56,8 @@ Return ONLY compact JSON, no prose:
  "warnings": ["anything the estimator should verify"],
  "overallConfidence": 0.8
 }
-Rules for the fields: set "zoneKind" on EVERY row — it decides which price applies, so a garage eave must be "garage" (a roofline), never "window". For rake/gable/dormer-slope rows set baseWidthFt and leave lengthFt null. For every other row set lengthFt and leave baseWidthFt null. For bush/shrub AREA marks: estimate plant height and width in ft in "basis", add "sizeClass":"small|medium|large|xl", and set lengthFt to estimated wrap footage. Keep every note under 15 words. Be terse.`;
+Rules for the fields: set "zoneKind" on EVERY row — it decides which price applies, so a garage eave must be "garage" (a roofline), never "window". For rake/gable/dormer-slope rows set baseWidthFt and leave lengthFt null. For every other row set lengthFt and leave baseWidthFt null. For bush/shrub AREA marks: estimate plant height and width in ft in "basis", add "sizeClass":"small|medium|large|xl", and set lengthFt to estimated wrap footage.
+SPEED IS CRITICAL: output single-line compact JSON with no whitespace. "basis" max 8 words, notes max 10 words, warnings max 2 items. Do not repeat or explain anything.`;
 }
 
 /* Concrete physical descriptions so the image model renders a real
@@ -111,7 +112,7 @@ async function runAnalysis(onStatus = () => {}) {
         { type: "text", text: buildAnalysisPrompt() },
       ],
     }],
-    maxTokens: 3000,
+    maxTokens: 1500,   // latency throttle — see note in 02-api.js
   }, onStatus);
 
   const parsed = validateShape(extractJSON(text), {

@@ -13,6 +13,8 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body); } catch { return json(400, { error: "Bad JSON" }); }
 
   try {
+    // Time-box below Netlify's 30s sandbox kill: returning our own clean 504
+    // lets the client retry once cheaply, instead of an opaque Sandbox.Timeout.
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -22,10 +24,11 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: body.model || DEFAULT_MODEL,
-        max_tokens: Math.min(body.max_tokens || 4000, 8000),
+        max_tokens: Math.min(body.max_tokens || 1500, 2000),  // latency throttle
         system: body.system || undefined,
         messages: body.messages,
       }),
+      signal: AbortSignal.timeout(26000),
     });
 
     const text = await res.text();
@@ -37,6 +40,9 @@ exports.handler = async (event) => {
     // Pass through so the client can retry 502/503/504 (Rule 14)
     return { statusCode: res.status, headers: { "Content-Type": "application/json" }, body: text };
   } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError") {
+      return json(504, { error: "AI response exceeded the time budget — retrying usually works." });
+    }
     return json(502, { error: "Upstream error: " + e.message });
   }
 };

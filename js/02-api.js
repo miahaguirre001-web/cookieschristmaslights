@@ -69,6 +69,24 @@ async function apiFetch(path, options = {}, onStatus = null) {
       // making the user wait through the whole backoff for a certain error.
       const configError = parsed?.configError === true;
 
+      // A timeout means THIS REQUEST is too slow for the 30s window. Unlike
+      // an overload, retrying the identical payload usually times out again —
+      // and every retry costs the user ~30 more seconds of waiting. Allow ONE
+      // quick retry (generation speed varies), then stop with real advice.
+      const isTimeout = /Sandbox\.Timeout|Task timed out|exceeded the time budget/i.test(detail || "");
+      if (isTimeout) {
+        if (attempt < 1) {
+          if (onStatus) onStatus("AI ran long — one more try…");
+          await sleep(1000);
+          continue;
+        }
+        throw new Error(
+          "The AI took longer than the server's 30-second limit, twice. " +
+          "Reduce the job (fewer marked zones per analysis) or use the manual fallback panel. " +
+          "The site admin can also ask Netlify support to raise the function timeout."
+        );
+      }
+
       if (!configError && isRetryableStatus(res.status) && attempt < MAX) {
         if (onStatus) onStatus(busyMessage(res.status, attempt + 1, MAX));
         await sleep(jitter(RETRY_DELAYS[attempt]));
@@ -120,8 +138,16 @@ function friendlyError(status, detail, attempts, configError) {
 const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ---- Claude (vision/analysis/parsing) ---- */
-async function callClaude({ system, messages, maxTokens = 4000 }, onStatus) {
+/* ---- Claude (vision/analysis/parsing) ----
+ * TIMEOUT BUDGET: Netlify kills functions at 30s (Sandbox.Timeout). Output
+ * tokens dominate latency (~60-100 tok/s), so maxTokens is the throttle:
+ * 1500 tokens ≈ 15-25s ≈ safely inside the window. Never raise these limits
+ * without confirming the call still fits. FAST_MODEL handles structured
+ * look-at-the-picture tasks in a fraction of the time. */
+const FAST_MODEL = "claude-haiku-4-5";     // detect / refine / QA
+const SMART_MODEL = null;                   // measurement analysis → server default (sonnet)
+
+async function callClaude({ system, messages, maxTokens = 1500, model = null }, onStatus) {
   const imgs = [];
   for (const m of messages) for (const b of m.content || [])
     if (b.type === "image") imgs.push(b.source?.data || "");
@@ -129,7 +155,7 @@ async function callClaude({ system, messages, maxTokens = 4000 }, onStatus) {
   const data = await apiFetch("/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system, messages, max_tokens: maxTokens }),
+    body: JSON.stringify({ system, messages, max_tokens: Math.min(maxTokens, 2000), model: model || undefined }),
   }, onStatus);
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
   return text;

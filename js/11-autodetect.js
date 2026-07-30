@@ -34,7 +34,8 @@ Return ONLY JSON:
   {"kind":"box","featureType":"window|column|railing|bush|shrub|tree|garage_eave","rect":{"x":..,"y":..,"w":..,"h":..},"confidence":0.0-1.0,"label":"left front window","heightFt":null,"widthFt":null}
  ]
 }
-Rules: polylines follow perspective (a receding eave slopes in image space — trace what you SEE). Bush/shrub/tree boxes must fit TIGHTLY around the actual plant, not the whole garden bed. Estimate heightFt/widthFt for plants. Garage rooflines use featureType "garage_eave" (excluded by default). Labels under 4 words. If trees or shadows hide an edge, lower that feature's confidence honestly rather than guessing confidently.`;
+Rules: polylines follow perspective (a receding eave slopes in image space — trace what you SEE). Bush/shrub/tree boxes must fit TIGHTLY around the actual plant, not the whole garden bed. Estimate heightFt/widthFt for plants. Garage rooflines use featureType "garage_eave" (excluded by default). Labels under 4 words. If trees or shadows hide an edge, lower that feature's confidence honestly rather than guessing confidently.
+SPEED IS CRITICAL: at most 14 features, polylines at most 4 points each, single-line compact JSON, no whitespace, no explanations.`;
 
 /* ---------- 1. grid-anchored detection ---------- */
 
@@ -69,7 +70,8 @@ async function runDetection(onStatus = () => {}) {
   const text = await callClaude({
     system: "You are a precise architectural feature detector. Respond with valid JSON only.",
     messages: [{ role: "user", content: [imageBlock(gridImage), { type: "text", text: DETECT_PROMPT }] }],
-    maxTokens: 4000,
+    maxTokens: 1600,        // latency throttle — must fit Netlify's 30s window
+    model: FAST_MODEL,      // structured looking, not reasoning — fast model
   }, onStatus);
   const parsed = validateShape(extractJSON(text), { features: "array", overallConfidence: "number" }, "Detection");
   const added = applyDetection(parsed);
@@ -152,7 +154,7 @@ const REFINE_PROMPT = `Image 1 is a house photo with detected light-placement li
 
 Inspect each labeled line. For any line that is offset from its real edge, floating in the sky, on a tree, or on the wrong feature, output corrected endpoints (normalized 0–1, using the cyan 10% reference grid). For lines that are already correct, list them in "ok". For lines that should not exist at all (nothing lightable there), list them in "remove".
 
-Return ONLY JSON:
+Return ONLY single-line compact JSON, no explanations:
 {"ok":["mark_01"],"remove":["mark_07"],"corrections":[{"markId":"mark_02","a":{"x":0.12,"y":0.31},"b":{"x":0.44,"y":0.30}}]}`;
 
 async function refineDetectionWithAI(onStatus = () => {}) {
@@ -193,7 +195,8 @@ async function refineDetectionWithAI(onStatus = () => {}) {
   const text = await callClaude({
     system: "You are a strict placement inspector. Respond with valid JSON only.",
     messages: [{ role: "user", content: [imageBlock(overlay), { type: "text", text: REFINE_PROMPT }] }],
-    maxTokens: 2500,
+    maxTokens: 1000,        // latency throttle
+    model: FAST_MODEL,
   }, onStatus);
   const parsed = validateShape(extractJSON(text), { ok: "array", remove: "array", corrections: "array" }, "Refinement");
 

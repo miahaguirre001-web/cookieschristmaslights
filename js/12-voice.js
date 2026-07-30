@@ -48,7 +48,7 @@ function initVoice() {
     const out = await callClaude({
       system: "You convert spoken Christmas-light design requests into precise photo markup. Respond with valid JSON only.",
       messages: [{ role: "user", content: [imageBlock(project.photo), { type: "text", text: buildVoicePrompt(text, project.marks) }] }],
-      maxTokens: 3500,
+      maxTokens: 1800,        // latency throttle — see 02-api.js
     }, onStatus);
 
     const parsed = validateShape(extractJSON(out), { marks: "array", clarifications: "array", understood: "string" }, "Voice parse");

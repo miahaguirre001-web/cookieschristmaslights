@@ -180,7 +180,8 @@ async function generateMockup(btn, statusEl, isRetry = false, correction = "") {
         role: "user",
         content: [imageBlock(project.photo), imageBlock(resultUrl), { type: "text", text: buildQAPrompt() }],
       }],
-      maxTokens: 800,
+      maxTokens: 400,         // latency throttle
+      model: FAST_MODEL,
     }, onStatus);
     qa = validateShape(extractJSON(qaText), { failures: "array" }, "QA");
   } catch (e) {
