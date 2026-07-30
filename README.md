@@ -209,6 +209,46 @@ that keeps improving on its own. Export the records any time for backup.
   High (z21) doubles the resolution for small or urban lots. The zoom used is
   recorded with the project so the scale math stays exact.
 
+## Wall of lights (dense surface fill)
+
+For jobs like the J&J storefront — a whole roof face or wall covered in a
+sheet of bulbs — use the **🧱 Wall of lights** tool and drag across the
+surface. It is priced as a fill, not a linear run:
+
+```
+area (w × h × coverage) ÷ gap = feet of light ÷ 14 ft = strands (rounded up)
+```
+
+Density (tight / standard / wide) changes the strand count directly — a tight
+wall on a 40×10 ft face is 86 strands, wide is 35. Coverage trims the area for
+partial fills. The rate ships **unset**, so the office must price
+`wall_strand` in the Pricing Guide before a wall job can be finalised; the tool
+refuses rather than guessing.
+
+## Trees — wrap style and partial coverage
+
+Use the **🌳 Tree** tool and box **only the part you're lighting** — just the
+trunk, or the trunk and lower limbs. Only what's inside the box is measured
+and priced. Pick the style as you draw:
+
+| Style | What it means |
+|---|---|
+| Swirl / spiral | Even spiral up the trunk and main limbs |
+| Branch wrap | Strands run out along individual branches |
+| Trunk only | Trunk wrapped, canopy dark |
+| Trunk + branches | Both |
+| Canopy / net | Net draped over the canopy |
+
+The style drives the strand math *and* how the mock-up renders it, and can be
+changed later in the ⚙ editor on the measurement row.
+
+## Greenery is always mini lights
+
+Bushes, shrubs and trees are locked to **mini lights** no matter which marker
+is selected — only the customer's colour scheme changes them. This holds for
+manual drawing, auto-detect and dictation, so a shrub can never be quoted as
+C9 by accident.
+
 ## Wreath sizes
 
 Wreaths come in three sizes and each has its own rate (36" $100 · 48" $190 ·
@@ -270,7 +310,7 @@ their own rates and are unaffected.
 
 ```
 node tests/pricing.test.js     # 50 assertions
-node tests/geometry.test.js    # 80 assertions
+node tests/geometry.test.js    # 99 assertions
 node tests/feedback.test.js    # 15 assertions
 ```
 

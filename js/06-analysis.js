@@ -61,7 +61,8 @@ Return ONLY compact JSON, no prose:
  "measurements": [
    {"markId":"mark_01","zoneKind":"eave|rake|ridge|side|dormer|garage|window|icicle|ground|bush|shrub|tree|pillar|garland","zoneLabel":"front left eave","lengthFt":46.0,"source":"both","confidence":0.82,"basis":"satellite front 52ft; photo anchors agree"},
    {"markId":"mark_05","zoneKind":"bush","zoneLabel":"bush left of front door","lengthFt":null,"source":"photo","confidence":0.6,"plant":{"widthFt":4,"heightFt":3,"depthFt":3,"shape":"rounded","density":"dense","sizeClass":"medium"}},
-   {"markId":"mark_06","zoneKind":"tree","zoneLabel":"maple right of driveway","lengthFt":null,"source":"photo","confidence":0.55,"tree":{"heightFt":18,"trunkHeightFt":8,"trunkCircumFt":3.1,"branchCount":6,"branchLenFt":5,"branchCircumFt":1.2,"canopyWidthFt":14}}
+   {"markId":"mark_06","zoneKind":"tree","zoneLabel":"maple right of driveway","lengthFt":null,"source":"photo","confidence":0.55,"tree":{"heightFt":18,"trunkHeightFt":8,"trunkCircumFt":3.1,"branchCount":6,"branchLenFt":5,"branchCircumFt":1.2,"canopyWidthFt":14}},
+   {"markId":"mark_07","zoneKind":"wall","zoneLabel":"front roof face","lengthFt":null,"source":"photo","confidence":0.6,"wall":{"widthFt":38,"heightFt":9}}
  ],
  "roofComplexity": "easy|mid|hard",
  "roofPitchPer12": 8,
@@ -74,7 +75,7 @@ Return ONLY compact JSON, no prose:
 "houseFrontWidthFt" = FULL width of the street-facing facade wall-to-wall including attached garage — derive it from the satellite footprint when provided.
 zoneKind decides pricing: a garage eave must be "garage" (a roofline), never "window".
 ZONE LABELS must describe LOCATION so a human can find them: "bush left of front door", "front left bush", "tree right of driveway" — NEVER "bush 1" or "tree 2".
-For bush/shrub rows fill the "plant" object (measure against door/window anchors; depth from satellite if visible). For tree rows fill the "tree" object. Leave lengthFt null for plants/trees — strand math is computed from dimensions, not by you.
+For bush/shrub rows fill the "plant" object (measure against door/window anchors; depth from satellite if visible). For tree rows fill the "tree" object, measuring ONLY the portion inside the marked box (if the box covers just the trunk, report trunk dimensions and set branchCount 0). For "wall" rows — a dense sheet of lights covering a building face — fill the "wall" object with the real width and height of that face in feet. Leave lengthFt null for plants, trees and walls: strand math is computed from dimensions, not by you.
 HONESTY: if the images don't show enough (occlusion, distance, shadows), set confidence below 0.5 and say why in "basis" — do not guess confidently.
 SPEED IS CRITICAL: single-line compact JSON, no whitespace. "basis" max 8 words, warnings max 3 items.`;
 }
@@ -104,7 +105,20 @@ function describeMarkGeometry(m) {
   }
   if (m.kind === "area") {
     const r = m.rect;
-    return `[${m.id}] ${m.areaKind} fill area at (${pct(r.x)}, ${pct(r.y)}) size ${pct(r.w)}×${pct(r.h)} — light the real plants inside this region only — label: ${m.zoneLabel}`;
+    const box = `at (${pct(r.x)}, ${pct(r.y)}) size ${pct(r.w)}×${pct(r.h)}`;
+    if (m.areaKind === "wall") {
+      return `[${m.id}] WALL OF LIGHTS ${box} — cover this building surface with a dense even field of mini-light bulbs, like a curtain/net of lights laid flat across the face, following its real shape and perspective. Bulbs sit ON the surface; do not change the building itself — label: ${m.zoneLabel}`;
+    }
+    if (m.areaKind === "tree") {
+      const style = TREE_WRAP_STYLES.find((s) => s.id === m.wrapStyle);
+      const how = m.wrapStyle === "branch" ? "strands running out along each individual branch"
+        : m.wrapStyle === "trunk" ? "the trunk spiral-wrapped only, canopy left dark"
+        : m.wrapStyle === "trunk_branch" ? "the trunk spiral-wrapped AND strands out along the branches"
+        : m.wrapStyle === "canopy" ? "a net of lights draped over the canopy surface"
+        : "an even spiral wrap up the trunk and main limbs";
+      return `[${m.id}] TREE ${box} — light ONLY the portion of the tree inside this box with mini lights: ${how}. Leave the rest of the tree dark — label: ${m.zoneLabel} (${style?.label || m.wrapStyle})`;
+    }
+    return `[${m.id}] ${m.areaKind} fill area ${box} — wrap the real plants inside this region with mini lights only — label: ${m.zoneLabel}`;
   }
   const a = ADDONS.find((x) => x.id === m.addonId);
   const r = m.rect;
@@ -337,6 +351,7 @@ function applyAnalysis(parsed) {
     const zoneKind = m.zoneKind || inferZoneKind(mark);
     const isPlant = zoneKind === "bush" || zoneKind === "shrub";
     const isTree = zoneKind === "tree";
+    const isWall = zoneKind === "wall";
     const itemKey = itemKeyForZone(zoneKind, complexity) || defaultItemKey(mark);
 
     const row = {
@@ -373,12 +388,24 @@ function applyAnalysis(parsed) {
         trunkCircumFt: num(t.trunkCircumFt, null), branchCount: num(t.branchCount, null),
         branchLenFt: num(t.branchLenFt, null), branchCircumFt: num(t.branchCircumFt, null),
         canopyWidthFt: num(t.canopyWidthFt, null),
-        style: mark?.wrapStyle === "branch" ? "trunk_branch" : "trunk",
-        spacingKey: "standard",
+        // The estimator's chosen wrap style wins — it's a customer decision,
+        // not something for the AI to infer.
+        style: mark?.wrapStyle || DEFAULT_TREE_STYLE,
+        spacingKey: mark?.spacingKey || "standard",
       };
       const td = treeStrandBreakdown(row.tree, cfg.rules);
       row.value = td.footage;
       row.rawAiValue = td.footage;
+    } else if (isWall) {
+      const wl = m.wall || {};
+      row.wall = {
+        widthFt: num(wl.widthFt, 20), heightFt: num(wl.heightFt, 8),
+        spacingKey: mark?.spacingKey || "standard",
+        coverage: mark?.coverage ?? 1,
+      };
+      const wd = wallStrandBreakdown(row.wall, cfg.rules);
+      row.value = wd.footage;
+      row.rawAiValue = wd.footage;
     } else {
       if (typeof m.lengthFt !== "number") continue;   // nothing usable
       row.value = round1(m.lengthFt);
@@ -426,7 +453,11 @@ function inferZoneKind(mark) {
     if (f === "walkway" || f === "driveway") return "ground";
     if (f === "column" || f === "railing") return "pillar";
   }
-  if (mark.kind === "area") return mark.areaKind === "shrub" ? "shrub" : "bush";
+  if (mark.kind === "area") {
+    if (mark.areaKind === "tree") return "tree";
+    if (mark.areaKind === "wall") return "wall";
+    return mark.areaKind === "shrub" ? "shrub" : "bush";
+  }
   if (mark.kind === "addon") return "pillar";
   const l = (mark.zoneLabel || "").toLowerCase();
   if (l.includes("garage")) return "garage";

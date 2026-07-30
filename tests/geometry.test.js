@@ -8,6 +8,7 @@ const {
   bushStrandBreakdown, treeStrandBreakdown,
   pitchFactor, assumedPitch, applyPitchToPlanLength,
   footprintEdges, frontEdgeOf, rooflineFromEdge,
+  wallLightFootage, wallStrandBreakdown, itemKeyForZone: _ik,
 } = require("../js/06b-geometry.js");
 
 let pass = 0, fail = 0;
@@ -218,6 +219,57 @@ console.log("Direct edge measurement from the footprint");
   approx("overhang configurable (6\")", rooflineFromEdge(52, 6), 53, 0.01);
   eq("empty footprint → no edges", footprintEdges([], lat, 20).length, 0);
   eq("frontEdgeOf handles empty", frontEdgeOf([], 0), null);
+}
+
+
+console.log("Wall of lights — area-driven, density-driven");
+{
+  // 40x10 face @6" gap: area 400 sq ft / 0.5 ft = 800 ft of light
+  const w = wallLightFootage({ widthFt: 40, heightFt: 10, spacingKey: "standard" }, RULES);
+  approx("40x10 face = 400 sq ft", w.areaSqFt, 400, 0.1);
+  approx('@6" gap = 800 ft of light', w.footage, 800, 1);
+  const bd = wallStrandBreakdown({ widthFt: 40, heightFt: 10, spacingKey: "standard" }, RULES);
+  eq("800 ft / 14 = 58 strands (rounded up)", bd.strands, 58);
+  eq("gap reported for the breakdown", bd.spacingIn, 6);
+
+  // density changes the count, which is the whole point
+  const tight = wallStrandBreakdown({ widthFt: 40, heightFt: 10, spacingKey: "tight" }, RULES);
+  const wide  = wallStrandBreakdown({ widthFt: 40, heightFt: 10, spacingKey: "wide" }, RULES);
+  eq(`tight(${tight.strands}) > standard(${bd.strands}) > wide(${wide.strands})`,
+    tight.strands > bd.strands && bd.strands > wide.strands, true);
+  approx("tight 4in = 1.5x the standard footage", tight.footage / bd.footage, 1.5, 0.01);
+
+  // partial coverage trims the area
+  const half = wallStrandBreakdown({ widthFt: 40, heightFt: 10, spacingKey: "standard", coverage: 0.5 }, RULES);
+  approx("coverage 0.5 halves the area", half.areaSqFt, 200, 0.1);
+  eq("and roughly halves the strands", half.strands, 29);
+
+  // safety
+  eq("zero size still returns >=1 strand", wallStrandBreakdown({ widthFt: 0, heightFt: 0 }, RULES).strands >= 1, true);
+  eq("wall maps to the wall price item", _ik("wall", "mid"), "wall_strand");
+}
+
+console.log("Tree wrap styles are distinct and spacing-driven");
+{
+  const base = { heightFt: 20, trunkHeightFt: 8, trunkCircumFt: 3, branchCount: 6, branchLenFt: 5, branchCircumFt: 1.2, canopyWidthFt: 14, spacingKey: "standard" };
+  const swirl  = treeLightFootage({ ...base, style: "swirl" }, RULES);
+  const trunk  = treeLightFootage({ ...base, style: "trunk" }, RULES);
+  const branch = treeLightFootage({ ...base, style: "branch" }, RULES);
+  const both   = treeLightFootage({ ...base, style: "trunk_branch" }, RULES);
+  const canopy = treeLightFootage({ ...base, style: "canopy" }, RULES);
+  approx("swirl == trunk spiral math", swirl, trunk, 0.1);
+  eq("branch differs from trunk", Math.abs(branch - trunk) > 5, true);
+  approx("trunk+branch = trunk + branch", both, trunk + branch, 0.5);
+  eq("canopy is its own calculation", canopy > 0 && Math.abs(canopy - trunk) > 5, true);
+  // spacing drives every style
+  for (const style of ["swirl", "branch", "trunk_branch", "canopy"]) {
+    const t = treeLightFootage({ ...base, style, spacingKey: "tight" }, RULES);
+    const w = treeLightFootage({ ...base, style, spacingKey: "wide" }, RULES);
+    eq(`${style}: tight > wide`, t > w, true);
+  }
+  // marking only the trunk (no branches) must cost less than the whole tree
+  const trunkOnly = treeLightFootage({ ...base, branchCount: 0, style: "trunk_branch" }, RULES);
+  eq("no branches marked → less light than full tree", trunkOnly < both, true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

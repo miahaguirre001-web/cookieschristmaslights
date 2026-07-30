@@ -25,10 +25,15 @@ Return ONLY JSON:
  "marks": [
   {"kind":"line|curve","lightType":"c9|c7|mini|multi|icicle","a":{"x":..,"y":..},"b":{"x":..,"y":..},"zoneLabel":"front eave"},
   {"kind":"area","areaKind":"bush|shrub","lightType":"mini","rect":{"x":..,"y":..,"w":..,"h":..},"zoneLabel":"bushes by porch","sizeClass":"small|medium|large|xl"},
+  {"kind":"area","areaKind":"tree","rect":{"x":..,"y":..,"w":..,"h":..},"zoneLabel":"maple by driveway","wrapStyle":"swirl|branch|trunk|trunk_branch|canopy"},
+  {"kind":"area","areaKind":"wall","rect":{"x":..,"y":..,"w":..,"h":..},"zoneLabel":"front roof face","spacingKey":"tight|standard|wide"},
   {"kind":"addon","addonId":"wreath_lit|wreath_unlit|pillar_wrap|bow_red|bow_striped|garland|teardrop|deer_buck_l|deer_buck_r|deer_doe_l|deer_doe_r|deer_baby_l|deer_baby_r","addonSize":"36|48|60","rect":{"x":..,"y":..,"w":0.08,"h":0.08},"zoneLabel":"front door wreath"}
  ],
  "colorScheme": "red_green|red_white|warm_white|multi|custom|null"
 }
+Trees: use areaKind "tree" and box ONLY the part to be lit; "wrapStyle" comes from what was said — "swirl"/"spiral"/"candy cane" → swirl, "branch wrap"/"wrap the branches" → branch, "trunk only" → trunk, "trunk and branches" → trunk_branch, "net"/"canopy" → canopy. Default swirl.
+"Wall of lights", "cover the wall/roof face in lights", "curtain of lights" → areaKind "wall" over that surface; "spacingKey" tight if they say dense/full, wide if sparse.
+Bushes, shrubs and trees are ALWAYS mini lights — never set another lightType for them.
 "addonSize" applies to wreaths ONLY and changes the price — use it when a size is spoken ("48 inch wreath", "big wreath" → 60, "small wreath" → 36); default "36" when unspecified.
 Rules: trace the ACTUAL visible edges in the photo (e.g. "whole front roofline" = the real eave line you can see). Exclusions ("skip the garage") mean: do NOT create marks there, and list any existing marks on that feature in removeMarkIds. "Wrap the pillars" = one pillar_wrap addon per visible pillar, placed on each. If a request is ambiguous (e.g. "the windows" when 5 are visible), put ONE short question in clarifications and DO NOT guess that part — still return the unambiguous marks. Keep zoneLabels under 4 words.`;
 }
@@ -88,11 +93,21 @@ function applyVoiceDesign(parsed) {
         source: "voice", confidence: null, included: true, wrapStyle: null,
       });
     } else if (m.kind === "area" && m.rect && isRect(m.rect)) {
+      const kind = ["bush", "shrub", "tree", "wall"].includes(m.areaKind) ? m.areaKind : "bush";
+      const isGreen = GREENERY_KINDS.has(kind);
       project.marks.push({
-        id: nextMarkId(), kind: "area", areaKind: m.areaKind || "bush",
-        lightType: m.lightType || "mini", rect: m.rect,
-        zoneLabel: m.zoneLabel || "bushes", sizeClass: m.sizeClass || "medium",
-        source: "voice", confidence: null, included: true, wrapStyle: "wrap",
+        id: nextMarkId(), kind: "area", areaKind: kind,
+        // greenery is always mini lights; a wall keeps whatever was asked for
+        lightType: isGreen ? GREENERY_LIGHT_TYPE : (m.lightType || "mini"),
+        rect: m.rect,
+        zoneLabel: m.zoneLabel || kind,
+        sizeClass: m.sizeClass || "medium",
+        spacingKey: ["tight", "standard", "wide"].includes(m.spacingKey) ? m.spacingKey : "standard",
+        source: "voice", confidence: null, included: true,
+        wrapStyle: kind === "tree"
+          ? (TREE_WRAP_STYLES.some((s) => s.id === m.wrapStyle) ? m.wrapStyle : DEFAULT_TREE_STYLE)
+          : kind === "wall" ? null : "wrap",
+        coverage: kind === "wall" ? 1 : undefined,
       });
     } else if (m.kind === "addon" && m.rect && isRect(m.rect)) {
       const a = ADDONS.find((x) => x.id === m.addonId);

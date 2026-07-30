@@ -292,13 +292,21 @@ function applyDetection(parsed) {
       }
     } else if (f.kind === "box" && f.rect && isRect(f.rect)) {
       const isPlant = ["bush", "shrub", "tree"].includes(f.featureType);
+      const isTreeF = f.featureType === "tree";
       project.marks.push({
         id: nextMarkId(),
         kind: isPlant ? "area" : "line",
         ...(isPlant
-          ? { areaKind: f.featureType === "shrub" ? "shrub" : "bush", rect: f.rect, wrapStyle: "wrap", sizeClass: sizeFromFt(f.heightFt) }
+          ? {
+              areaKind: isTreeF ? "tree" : f.featureType === "shrub" ? "shrub" : "bush",
+              rect: f.rect,
+              wrapStyle: isTreeF ? DEFAULT_TREE_STYLE : "wrap",
+              spacingKey: "standard",
+              sizeClass: sizeFromFt(f.heightFt),
+            }
           : boxToPerimeterLine(f)),
-        lightType: isPlant ? "mini" : "c7",
+        // greenery is always mini lights, whatever the detector suggests
+        lightType: isPlant ? GREENERY_LIGHT_TYPE : "c7",
         zoneLabel: f.label || f.featureType,
         featureType: f.featureType,
         source: "detected", confidence: f.confidence ?? 0.5,

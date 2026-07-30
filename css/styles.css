@@ -213,6 +213,19 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 .cx small { font-weight: 400; }
 .cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
 
+/* contextual tool options (tree style, wall density) */
+.tool-options {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  margin: 8px 0;
+}
+.tool-options:not(:empty) {
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 12px;
+}
+.tool-options label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.tool[data-id="wall"].sel { background: #ff9800; color: #000; border-color: #ff9800; }
+.tool[data-id="trees"].sel { background: #66bb6a; color: #000; border-color: #66bb6a; }
+
 /* placed add-ons list */
 #addon-list { margin-top: 8px; }
 .addon-list-head { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }

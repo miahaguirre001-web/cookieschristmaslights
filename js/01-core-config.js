@@ -50,6 +50,7 @@ const DEFAULT_PRICING = {
     icicle:         { label: "Icicle Lights",        unit: "lf",     rate: 6.0,   cost: null, note: "" },
     c7_window:      { label: "C7 Window Wrap",       unit: "lf",     rate: 4.5,   cost: null, note: "$4–$5 depending on window" },
     bush_strand:    { label: "Bush Wrap",            unit: "strand", rate: 40.0,  cost: 13,   note: "1 strand ≈ 14 ft; capped by bush size" },
+    wall_strand:    { label: "Wall of Lights",       unit: "strand", rate: null,  cost: 13,   note: "SET PRICE — dense surface fill on a building face, billed per strand" },
     tree_strand:    { label: "Tree Wrap",            unit: "strand", rate: 40.0,  cost: 13,   note: "Tree Wrap or Branch Style — same rate" },
     pillar_strand:  { label: "Pillar / Column Wrap", unit: "strand", rate: 50.0,  cost: 13,   note: "2 strands per wrap = $100/pillar" },
     ground_stake:   { label: "Ground Stake Lights",  unit: "lf",     rate: 5.0,   cost: null, note: "Walkways, garden beds, driveways" },
@@ -160,6 +161,22 @@ const LIGHT_TYPES = [
   { id: "multi",  label: "Multi-Color",   marker: "#8e24aa", desc: "Multicolor strands" },
   { id: "icicle", label: "Icicle",        marker: "#ec407a", desc: "Hanging icicle strands" },
 ];
+
+/* Greenery is ALWAYS mini lights — only the colour scheme varies. Any mark on
+ * a bush, shrub or tree is forced to this product regardless of which marker
+ * was selected, so an estimator can't accidentally quote C9 on a shrub. */
+const GREENERY_LIGHT_TYPE = "mini";
+const GREENERY_KINDS = new Set(["bush", "shrub", "tree", "plant"]);
+
+/* Tree wrap styles — the choice drives strand math AND the mock-up render. */
+const TREE_WRAP_STYLES = [
+  { id: "swirl",        label: "Swirl / spiral wrap", desc: "Even spiral up the trunk (and limbs if marked)" },
+  { id: "branch",       label: "Branch wrap",         desc: "Strands run out along individual branches" },
+  { id: "trunk",        label: "Trunk only",          desc: "Trunk wrapped, canopy left dark" },
+  { id: "trunk_branch", label: "Trunk + branches",    desc: "Trunk wrapped and branches wrapped" },
+  { id: "canopy",       label: "Canopy / net",        desc: "Net or drape over the canopy surface" },
+];
+const DEFAULT_TREE_STYLE = "swirl";
 
 /* Add-on catalog. "pillar_wrap" is a light DESIGN, not an object — it wraps
  * whatever already exists at that spot; never adds an artificial pillar. */

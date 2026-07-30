@@ -150,8 +150,10 @@ const TOOLS = [
   { id: "target", label: "🎯 Target house", hint: "Circle the customer's house so the AI ignores the neighbours" },
   { id: "straight", label: "Straight", hint: "Click-drag A→B — rooflines, ridges, walkways" },
   { id: "curve",    label: "Curve",    hint: "A→B with a soft wave — draped runs" },
-  { id: "bushes",   label: "Bushes",   hint: "Drag a rectangle — everything inside gets lit" },
-  { id: "shrubs",   label: "Shrubs",   hint: "Rectangle for greenery" },
+  { id: "bushes",   label: "Bushes",   hint: "Drag a rectangle — everything inside gets lit (mini lights)" },
+  { id: "shrubs",   label: "Shrubs",   hint: "Rectangle for greenery (mini lights)" },
+  { id: "trees",    label: "🌳 Tree",  hint: "Box ONLY the part of the tree to light — trunk, or trunk + branches" },
+  { id: "wall",     label: "🧱 Wall of lights", hint: "Drag over a building face for a dense fill of lights" },
   { id: "eraser",   label: "Eraser",   hint: "Click a mark to remove it" },
 ];
 
@@ -163,8 +165,45 @@ function renderToolButtons() {
     b.addEventListener("click", () => {
       Canvas.tool = b.dataset.id;
       host.querySelectorAll(".tool").forEach((x) => x.classList.toggle("sel", x.dataset.id === Canvas.tool));
+      renderToolOptions();
     })
   );
+  renderToolOptions();
+}
+
+/* Contextual options for the selected tool (tree wrap style, wall density). */
+function renderToolOptions() {
+  const host = document.getElementById("tool-options");
+  if (!host) return;
+  if (Canvas.tool === "trees") {
+    host.innerHTML = `
+      <label>Wrap style
+        <select id="tool-tree-style">${TREE_WRAP_STYLES.map((s) =>
+          `<option value="${s.id}" ${s.id === (Canvas.treeStyle || DEFAULT_TREE_STYLE) ? "selected" : ""}>${s.label}</option>`).join("")}
+        </select>
+      </label>
+      <small>Box only the part you'll light — just the trunk, or the trunk and limbs. Trees are always <b>mini lights</b>; the colour follows the scheme above.</small>`;
+    document.getElementById("tool-tree-style").addEventListener("change", (e) => {
+      Canvas.treeStyle = e.target.value;
+    });
+  } else if (Canvas.tool === "wall") {
+    host.innerHTML = `
+      <label>Density
+        <select id="tool-wall-gap">
+          <option value="tight">Tight — dense wall</option>
+          <option value="standard" selected>Standard</option>
+          <option value="wide">Wide — sparse</option>
+        </select>
+      </label>
+      <small>Drag across the face you want covered (roof face, fascia, wall). Density sets how many strands the fill needs.</small>`;
+    document.getElementById("tool-wall-gap").addEventListener("change", (e) => {
+      Canvas.wallGap = e.target.value;
+    });
+  } else if (Canvas.tool === "bushes" || Canvas.tool === "shrubs") {
+    host.innerHTML = `<small>Bushes and shrubs are always <b>mini lights</b> — only the colour scheme changes them.</small>`;
+  } else {
+    host.innerHTML = "";
+  }
 }
 
 function renderAddonPicker() {
@@ -374,11 +413,37 @@ function onPointerUp() {
       id: nextMarkId(),
       kind: "area",
       areaKind: Canvas.tool === "bushes" ? "bush" : "shrub",
-      lightType: Canvas.lightType,
+      lightType: GREENERY_LIGHT_TYPE,      // greenery is always mini lights
       rect: normRect(start, cur),
       zoneLabel: Canvas.tool === "bushes" ? "bush" : "shrub",
       source: "manual", confidence: null, included: true,
       wrapStyle: "wrap", sizeClass: "medium",
+    });
+  } else if (Canvas.tool === "trees") {
+    // The box marks ONLY the part of the tree that gets lit.
+    project.marks.push({
+      id: nextMarkId(),
+      kind: "area",
+      areaKind: "tree",
+      lightType: GREENERY_LIGHT_TYPE,      // trees are always mini lights
+      rect: normRect(start, cur),
+      zoneLabel: "tree",
+      source: "manual", confidence: null, included: true,
+      wrapStyle: Canvas.treeStyle || DEFAULT_TREE_STYLE,
+      spacingKey: "standard",
+    });
+  } else if (Canvas.tool === "wall") {
+    project.marks.push({
+      id: nextMarkId(),
+      kind: "area",
+      areaKind: "wall",
+      lightType: Canvas.lightType === "c9" ? "mini" : Canvas.lightType,
+      rect: normRect(start, cur),
+      zoneLabel: "wall of lights",
+      source: "manual", confidence: null, included: true,
+      wrapStyle: null,
+      spacingKey: Canvas.wallGap || "standard",
+      coverage: 1,
     });
   }
   touchMarks();
@@ -616,18 +681,35 @@ function drawMark(ctx, m, W, H) {
     // bulb dots along the run (human preview only)
     drawBulbDots(ctx, m, W, H);
   } else if (m.kind === "area") {
-    ctx.strokeStyle = markerColor(m.lightType);
-    ctx.setLineDash([10, 6]);
-    ctx.lineWidth = lw;
     const r = m.rect;
+    const isWall = m.areaKind === "wall";
+    const isTree = m.areaKind === "tree";
+    ctx.strokeStyle = isWall ? "#ff9800" : isTree ? "#66bb6a" : markerColor(m.lightType);
+    ctx.setLineDash(isWall ? [4, 3] : [10, 6]);
+    ctx.lineWidth = lw;
     ctx.strokeRect(r.x * W, r.y * H, r.w * W, r.h * H);
     ctx.setLineDash([]);
-    // sparkle dots inside (human preview only — NEVER sent to AI, Rule 3)
-    ctx.fillStyle = markerColor(m.lightType);
-    const step = Math.max(14, W / 60);
+    // Preview dots — human only, NEVER sent to the AI (Rule 3). Wall fills
+    // draw a denser grid so a wall reads differently from a bush at a glance.
+    ctx.fillStyle = isWall ? "#ffd76a" : markerColor(m.lightType);
+    const step = isWall ? Math.max(8, W / 110) : Math.max(14, W / 60);
     for (let x = r.x * W + step / 2; x < (r.x + r.w) * W; x += step)
       for (let y = r.y * H + step / 2; y < (r.y + r.h) * H; y += step)
-        ctx.fillRect(x, y, 2.5, 2.5);
+        ctx.fillRect(x, y, isWall ? 2 : 2.5, isWall ? 2 : 2.5);
+    // label the kind + style so the design is readable on the canvas
+    const tag = isWall ? `wall · ${m.spacingKey || "standard"}`
+      : isTree ? `tree · ${TREE_WRAP_STYLES.find((s) => s.id === m.wrapStyle)?.label || m.wrapStyle || "swirl"}`
+      : null;
+    if (tag) {
+      ctx.font = `bold ${Math.max(10, W / 95)}px system-ui`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      ctx.strokeStyle = "rgba(0,0,0,.8)";
+      ctx.lineWidth = 3;
+      ctx.strokeText(tag, r.x * W + 3, r.y * H - 3);
+      ctx.fillStyle = isWall ? "#ff9800" : "#66bb6a";
+      ctx.fillText(tag, r.x * W + 3, r.y * H - 3);
+    }
   } else if (m.kind === "addon") {
     const a = ADDONS.find((x) => x.id === m.addonId);
     const r = m.rect;

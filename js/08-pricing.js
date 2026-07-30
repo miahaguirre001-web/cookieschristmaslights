@@ -18,7 +18,7 @@
  * `var x` alongside a `function x` declaration is fine; `var x` alongside a
  * `const x` is not. */
 if (typeof module !== "undefined" && typeof bushStrandBreakdown === "undefined") {
-  var { bushStrandBreakdown, treeStrandBreakdown, strandsFromFootage } = require("./06b-geometry.js");
+  var { bushStrandBreakdown, treeStrandBreakdown, strandsFromFootage, wallStrandBreakdown } = require("./06b-geometry.js");
 }
 if (typeof module !== "undefined" && typeof addonPriceItem === "undefined") {
   var addonPriceItem = require("./01-core-config.js").addonPriceItem;
@@ -78,6 +78,11 @@ function computeQuote(measurements, marks, options, config) {
         strands = td.strands;
         detail = `${strands} strand${strands > 1 ? "s" : ""} · ${td.footage} ft light · ${td.style} @ ${td.spacingIn}" gap`;
         assumptions.push(`${m.zoneLabel}: ${td.style} wrap @ ${td.spacingIn}" gap → ${td.footage} ft → ${strands} strands`);
+      } else if (m.wall) {
+        const wd = wallStrandBreakdown(m.wall, rules);
+        strands = wd.strands;
+        detail = `${strands} strand${strands > 1 ? "s" : ""} · ${wd.areaSqFt} sq ft face · ${wd.footage} ft light @ ${wd.spacingIn}" gap`;
+        assumptions.push(`${m.zoneLabel}: wall ${wd.widthFt}×${wd.heightFt} ft = ${wd.areaSqFt} sq ft @ ${wd.spacingIn}" gap → ${wd.footage} ft → ${strands} strands`);
       } else {
         // legacy/manual footage rows: garland at 9 ft strands, wraps at 14 ft
         const isGarland = m.itemKey === "garland_strand";

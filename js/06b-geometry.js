@@ -46,6 +46,7 @@ function itemKeyForZone(zoneKind, complexity) {
     case "shrub":
     case "plant":   return "bush_strand";
     case "tree":    return "tree_strand";
+    case "wall":    return "wall_strand";
     case "pillar":  return "pillar_strand";
     case "garland": return "garland_strand";
     default:        return null;
@@ -245,7 +246,9 @@ function treeLightFootage(tree, rules) {
   const branchC = tree.branchCircumFt || Math.max(0.5, trunkC * 0.35);
 
   let footage = 0;
-  if (style === "trunk" || style === "trunk_branch" || style === "spiral") {
+  // "swirl" (a.k.a. spiral/candy-cane) is the trunk-and-main-limb spiral the
+  // crew quotes most often — same math as a trunk wrap over the marked height.
+  if (["trunk", "trunk_branch", "spiral", "swirl"].includes(style)) {
     const wraps = Math.max(1, trunkH / sFt);
     footage += wraps * trunkC;
   }
@@ -262,6 +265,35 @@ function treeLightFootage(tree, rules) {
   }
   const taper = rules?.wrapSpacing?.taperFactor ?? 0.8;
   return round1g(footage * taper);
+}
+
+/**
+ * WALL OF LIGHTS — a dense field of bulbs covering a building face
+ * (mansard roof, storefront fascia, gable wall). Not a linear run.
+ *
+ * A grid at spacing s covering W×H ft needs roughly one horizontal row every
+ * s feet, so total strand footage = area ÷ s. Tighter spacing = denser wall =
+ * more strands, exactly like the bush/tree math.
+ *
+ * "coverage" trims the area for partial fills (e.g. only the visible face).
+ */
+function wallLightFootage({ widthFt, heightFt, spacingKey = "standard", coverage = 1 }, rules) {
+  const w = Math.max(0.5, widthFt || 0);
+  const h = Math.max(0.5, heightFt || 0);
+  const sFt = spacingInches(spacingKey, rules) / 12;
+  const areaSqFt = w * h * Math.min(1, Math.max(0.05, coverage));
+  return { areaSqFt: round1g(areaSqFt), footage: round1g(areaSqFt / sFt) };
+}
+
+function wallStrandBreakdown(wall, rules) {
+  const { areaSqFt, footage } = wallLightFootage(wall, rules);
+  const strands = Math.max(1, Math.ceil(footage / (rules?.strandCoverageFt || 14)));
+  return {
+    areaSqFt, footage, strands,
+    spacingIn: spacingInches(wall.spacingKey || "standard", rules),
+    widthFt: wall.widthFt, heightFt: wall.heightFt,
+    coverage: wall.coverage ?? 1,
+  };
 }
 
 /* footage → whole strands, capped for bushes by size class (Rule 11),
@@ -305,6 +337,7 @@ if (typeof module !== "undefined") {
     satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
     spacingInches, bushLightFootage, treeLightFootage, strandsFromFootage,
     bushStrandBreakdown, treeStrandBreakdown, SPACING_KEYS,
+    wallLightFootage, wallStrandBreakdown,
     pitchFactor, assumedPitch, applyPitchToPlanLength, SLOPED_ZONE_KINDS,
     footprintEdges, frontEdgeOf, rooflineFromEdge,
   };

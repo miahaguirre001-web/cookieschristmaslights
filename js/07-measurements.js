@@ -65,6 +65,10 @@ function applyCalibrationFactor(factor, sourceLabel) {
         if (r.tree[k]) r.tree[k] = round1c(r.tree[k] * factor);
       }
       r.value = treeStrandBreakdown(r.tree, rules).footage;
+    } else if (r.wall) {
+      r.wall.widthFt = round1c(r.wall.widthFt * factor);
+      r.wall.heightFt = round1c(r.wall.heightFt * factor);
+      r.value = wallStrandBreakdown(r.wall, rules).footage;
     } else {
       r.value = round1c(r.value * factor);
     }
@@ -174,23 +178,24 @@ function renderMeasurements() {
       <thead><tr><th>Area</th><th>Item</th><th>AI est.</th><th>Final (edit)</th><th>Src</th><th>Conf.</th><th></th></tr></thead>
       <tbody>
       ${rows.map((r, i) => {
-        const isPlant = !!r.plant, isTree = !!r.tree;
+        const isPlant = !!r.plant, isTree = !!r.tree, isWall = !!r.wall;
         const bd = isPlant ? bushStrandBreakdown(r.plant, cfg.rules)
-          : isTree ? treeStrandBreakdown(r.tree, cfg.rules) : null;
+          : isTree ? treeStrandBreakdown(r.tree, cfg.rules)
+          : isWall ? wallStrandBreakdown(r.wall, cfg.rules) : null;
         return `
         <tr data-i="${i}" class="${r.confidence < 0.6 ? "low-conf-row" : ""}">
           <td>${esc(r.zoneLabel)}${r.calibratedBy ? ` <small class="peak-tag">${esc(r.calibratedBy)}-cal</small>` : ""}</td>
           <td>${esc(cfg.items[r.itemKey]?.label || r.itemKey)}</td>
           <td><small>${r.rawAiValue ?? "—"} ${bd ? "ft light" : "ft"}</small></td>
           <td>${bd
-            ? `<b>${r.manualStrands ?? bd.strands}</b> strand${(r.manualStrands ?? bd.strands) > 1 ? "s" : ""} <small>(${bd.footage} ft @ ${bd.spacingIn}" gap)</small>`
+            ? `<b>${r.manualStrands ?? bd.strands}</b> strand${(r.manualStrands ?? bd.strands) > 1 ? "s" : ""} <small>(${isWall ? bd.areaSqFt + " sq ft · " : ""}${bd.footage} ft @ ${bd.spacingIn}" gap)</small>`
             : `<input type="number" step="0.5" class="meas-val" value="${r.value}">`}</td>
           <td><small title="Which image this came from">${esc(r.imageSource || "photo")}</small></td>
           <td><span class="conf ${r.confidence < 0.6 ? "low" : ""}">${Math.round(r.confidence * 100)}%${r.confidence < 0.6 ? " ⚠" : ""}</span></td>
           <td>${bd ? `<button class="meas-detail" title="Adjust dimensions & spacing">⚙</button>` : ""}<button class="meas-del" title="Remove">✕</button></td>
         </tr>
         ${r.basis ? `<tr class="basis-row"><td colspan="7"><small>↳ ${esc(r.basis)}</small></td></tr>` : ""}
-        ${bd ? `<tr class="detail-row" data-detail="${i}" style="display:none"><td colspan="7">${isPlant ? plantEditor(r, i) : treeEditor(r, i)}</td></tr>` : ""}`;
+        ${bd ? `<tr class="detail-row" data-detail="${i}" style="display:none"><td colspan="7">${isPlant ? plantEditor(r, i) : isTree ? treeEditor(r, i) : wallEditor(r, i)}</td></tr>` : ""}`;
       }).join("")}
       </tbody>
     </table>`;
@@ -219,11 +224,12 @@ function renderMeasurements() {
     el.addEventListener("change", () => {
       const i = +el.dataset.row, f = el.dataset.pfield;
       const r = rows[i];
-      const obj = r.plant || r.tree;
+      const obj = r.plant || r.tree || r.wall;
       if (["pattern", "style", "spacingKey", "sizeClass", "density"].includes(f)) obj[f] = el.value;
       else obj[f] = parseFloat(el.value) || null;
       r.value = r.plant ? bushStrandBreakdown(r.plant, cfg.rules).footage
-                        : treeStrandBreakdown(r.tree, cfg.rules).footage;
+              : r.tree ? treeStrandBreakdown(r.tree, cfg.rules).footage
+              : wallStrandBreakdown(r.wall, cfg.rules).footage;
       r.source = "User Entered";
       r.confidence = 1;
       r.manualStrands = null;   // dimension edits re-derive; explicit strand override below wins
@@ -267,6 +273,23 @@ function plantEditor(r, i) {
   </div>`;
 }
 
+/* Wall-of-lights editor: face size + density (drives strand count) */
+function wallEditor(r, i) {
+  const wl = r.wall;
+  const numF = (f, label, val) => `<label>${label} <input type="number" step="0.5" data-pfield="${f}" data-row="${i}" value="${val ?? ""}" style="width:75px"></label>`;
+  return `<div class="pt-editor">
+    ${numF("widthFt", "Face width ft", wl.widthFt)}
+    ${numF("heightFt", "Face height ft", wl.heightFt)}
+    <label>Density <select data-pfield="spacingKey" data-row="${i}">
+      <option value="tight" ${wl.spacingKey === "tight" ? "selected" : ""}>Tight — dense</option>
+      <option value="standard" ${wl.spacingKey === "standard" ? "selected" : ""}>Standard</option>
+      <option value="wide" ${wl.spacingKey === "wide" ? "selected" : ""}>Wide — sparse</option>
+    </select></label>
+    <label>Coverage <input type="number" step="0.05" min="0.05" max="1" data-pfield="coverage" data-row="${i}" value="${wl.coverage ?? 1}" title="1 = the whole face, 0.5 = half of it" style="width:70px"></label>
+    <label>Strand override <input type="number" min="1" step="1" data-strandoverride="${i}" value="${r.manualStrands ?? ""}" placeholder="auto" style="width:64px"></label>
+  </div>`;
+}
+
 /* Tree editor: trunk/branch dimensions + style + spacing, per the spec */
 function treeEditor(r, i) {
   const t = r.tree;
@@ -278,12 +301,8 @@ function treeEditor(r, i) {
     ${numF("branchCount", "# branches", t.branchCount)}
     ${numF("branchLenFt", "Branch len ft", t.branchLenFt)}
     ${numF("branchCircumFt", "Branch circ ft", t.branchCircumFt)}
-    <label>Style <select data-pfield="style" data-row="${i}">
-      <option value="trunk" ${t.style === "trunk" ? "selected" : ""}>Trunk wrap</option>
-      <option value="branch" ${t.style === "branch" ? "selected" : ""}>Branch wrap</option>
-      <option value="trunk_branch" ${t.style === "trunk_branch" ? "selected" : ""}>Trunk + branches</option>
-      <option value="canopy" ${t.style === "canopy" ? "selected" : ""}>Canopy / net</option>
-      <option value="spiral" ${t.style === "spiral" ? "selected" : ""}>Spiral / candy-cane</option>
+    <label>Wrap style <select data-pfield="style" data-row="${i}">
+      ${TREE_WRAP_STYLES.map((s) => `<option value="${s.id}" ${t.style === s.id ? "selected" : ""}>${s.label}</option>`).join("")}
     </select></label>
     <label>Gap <select data-pfield="spacingKey" data-row="${i}">
       <option value="tight" ${t.spacingKey === "tight" ? "selected" : ""}>Tight</option>
