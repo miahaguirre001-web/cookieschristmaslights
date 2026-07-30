@@ -163,9 +163,45 @@ const LIGHT_TYPES = [
 
 /* Add-on catalog. "pillar_wrap" is a light DESIGN, not an object — it wraps
  * whatever already exists at that spot; never adds an artificial pillar. */
+/* Wreath sizes — these change the PRICE, so they must be selectable per
+ * placed wreath. relScale drives how big it's drawn on the photo and how
+ * the mock-up prompt describes it. */
+const WREATH_SIZES = [
+  { id: "36", label: '36"', inches: 36, relScale: 1.0,  litItem: "wreath_36" },
+  { id: "48", label: '48"', inches: 48, relScale: 1.33, litItem: "wreath_48" },
+  { id: "60", label: '60"', inches: 60, relScale: 1.67, litItem: "wreath_60" },
+];
+const DEFAULT_WREATH_SIZE = "36";
+
+/* Which price item a placed add-on uses. Wreath size decides it; unlit
+ * wreaths use the single unlit rate at every size unless the office adds
+ * sized unlit items to the Pricing Guide. */
+function addonPriceItem(mark) {
+  const a = ADDONS.find((x) => x.id === mark.addonId);
+  if (!a) return null;
+  if (mark.addonId === "wreath_lit") {
+    const s = WREATH_SIZES.find((x) => x.id === (mark.addonSize || DEFAULT_WREATH_SIZE));
+    return (s || WREATH_SIZES[0]).litItem;
+  }
+  if (mark.addonId === "wreath_unlit") {
+    // If the office later adds sized unlit prices to the Pricing Guide, use
+    // them; otherwise the single unlit rate applies at every size. Config
+    // access is guarded — this must never throw where storage is unavailable.
+    const sized = `wreath_unlit_${mark.addonSize || DEFAULT_WREATH_SIZE}`;
+    try {
+      const cfg = typeof loadPricingConfig === "function" ? loadPricingConfig() : null;
+      if (cfg?.items?.[sized]?.rate != null) return sized;
+    } catch { /* storage unavailable — fall through */ }
+    return "wreath_unlit";
+  }
+  return a.priceItem;
+}
+
+const isWreath = (addonId) => addonId === "wreath_lit" || addonId === "wreath_unlit";
+
 const ADDONS = [
-  { id: "wreath_lit",   label: "Wreath with lights",    priceItem: "wreath_36", glyph: "◎" },
-  { id: "wreath_unlit", label: "Wreath without lights", priceItem: "wreath_unlit", glyph: "○" },
+  { id: "wreath_lit",   label: "Wreath with lights",    priceItem: "wreath_36", glyph: "◎", sized: true },
+  { id: "wreath_unlit", label: "Wreath without lights", priceItem: "wreath_unlit", glyph: "○", sized: true },
   { id: "pillar_wrap",  label: "Pillars (wrap lights)", priceItem: "pillar_strand", glyph: "≋", isWrapDesign: true },
   { id: "bow_red",      label: "Red Bow",               priceItem: "bow_red_lg", glyph: "🎀" },
   { id: "bow_striped",  label: "Striped Bow",           priceItem: "bow_striped", glyph: "🎀" },
@@ -189,5 +225,8 @@ const PLAUSIBLE_RANGES = {
 
 /* Node test support */
 if (typeof module !== "undefined") {
-  module.exports = { DEFAULT_PRICING, migratePricingConfig, CONFIG_VERSION };
+  module.exports = {
+    DEFAULT_PRICING, migratePricingConfig, CONFIG_VERSION,
+    WREATH_SIZES, DEFAULT_WREATH_SIZE, addonPriceItem, isWreath, ADDONS,
+  };
 }

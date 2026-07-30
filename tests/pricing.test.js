@@ -3,6 +3,7 @@
 const { DEFAULT_PRICING } = require("../js/01-core-config.js");
 const { computeQuote } = require("../js/08-pricing.js");
 const { strandsFromFootage, bushStrandBreakdown, treeStrandBreakdown } = require("../js/06b-geometry.js");
+const { addonPriceItem, WREATH_SIZES } = require("../js/01-core-config.js");
 
 let passed = 0, failed = 0;
 function eq(name, actual, expected) {
@@ -97,6 +98,56 @@ console.log("Material cost surfaces when configured");
   eq("bush_strand has cost 13 -> materialCost present", q.lineItems[0].materialCost > 0, true);
   const q2 = computeQuote([{ zoneLabel: "eave", itemKey: "roofline_easy", value: 50, source: "User Entered", confidence: 1 }], [], opts, cfg);
   eq("items without a cost report null", q2.lineItems[0].materialCost, null);
+}
+
+
+console.log("Wreath sizes drive the price (36/48/60)");
+{
+  const q36 = computeQuote([], [{ kind: "addon", addonId: "wreath_lit", addonSize: "36", included: true }], opts, cfg);
+  const q48 = computeQuote([], [{ kind: "addon", addonId: "wreath_lit", addonSize: "48", included: true }], opts, cfg);
+  const q60 = computeQuote([], [{ kind: "addon", addonId: "wreath_lit", addonSize: "60", included: true }], opts, cfg);
+  approx('36" wreath = $100', q36.lineItems[0].total, 100);
+  approx('48" wreath = $190', q48.lineItems[0].total, 190);
+  approx('60" wreath = $310', q60.lineItems[0].total, 310);
+  eq("size shown in the line label", /60"/.test(q60.lineItems[0].label), true);
+  eq("price item resolves by size", addonPriceItem({ addonId: "wreath_lit", addonSize: "48" }), "wreath_48");
+  eq("missing size falls back to 36", addonPriceItem({ addonId: "wreath_lit" }), "wreath_36");
+  eq("bad size falls back to 36", addonPriceItem({ addonId: "wreath_lit", addonSize: "99" }), "wreath_36");
+}
+
+console.log("Mixed sizes are separate lines, not averaged");
+{
+  const marks = [
+    { kind: "addon", addonId: "wreath_lit", addonSize: "36", included: true },
+    { kind: "addon", addonId: "wreath_lit", addonSize: "36", included: true },
+    { kind: "addon", addonId: "wreath_lit", addonSize: "60", included: true },
+  ];
+  const q = computeQuote([], marks, opts, cfg);
+  const lines = q.lineItems.filter(l => /Wreath with lights/.test(l.label));
+  eq("two separate wreath lines", lines.length, 2);
+  const l36 = lines.find(l => /36/.test(l.label)), l60 = lines.find(l => /60/.test(l.label));
+  eq('2 x 36"', l36.qty, 2);
+  eq('1 x 60"', l60.qty, 1);
+  approx("total 2x100 + 1x310 = 510", l36.total + l60.total, 510);
+}
+
+console.log("Unlit wreath keeps its flat rate at every size");
+{
+  const q = computeQuote([], [{ kind: "addon", addonId: "wreath_unlit", addonSize: "60", included: true }], opts, cfg);
+  approx("unlit stays $80", q.lineItems[0].total, 80);
+  eq("resolves to the unlit item", addonPriceItem({ addonId: "wreath_unlit", addonSize: "60" }), "wreath_unlit");
+}
+
+console.log("Non-wreath add-ons are unaffected by size grouping");
+{
+  const marks = [
+    { kind: "addon", addonId: "bow_red", included: true },
+    { kind: "addon", addonId: "bow_red", included: true },
+  ];
+  const q = computeQuote([], marks, opts, cfg);
+  const bow = q.lineItems.find(l => /Red Bow/.test(l.label));
+  eq("bows still group together", bow.qty, 2);
+  approx("2 x $60 = $120", bow.total, 120);
 }
 
 console.log("Pillar wraps: 2 strands × $50 = $100 each");

@@ -213,6 +213,17 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 .cx small { font-weight: 400; }
 .cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
 
+/* placed add-ons list */
+#addon-list { margin-top: 8px; }
+.addon-list-head { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.addon-row {
+  display: grid; grid-template-columns: 1fr 80px 90px 36px; gap: 8px; align-items: center;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 10px; margin-bottom: 4px; font-size: 13px;
+}
+.addon-rate { text-align: right; color: var(--muted); }
+.addon-row-del { padding: 2px 8px; }
+
 /* framing controls */
 .frame-panel {
   background: var(--panel2); border: 1px solid var(--line);

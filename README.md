@@ -209,6 +209,19 @@ that keeps improving on its own. Export the records any time for backup.
   High (z21) doubles the resolution for small or urban lots. The zoom used is
   recorded with the project so the scale math stays exact.
 
+## Wreath sizes
+
+Wreaths come in three sizes and each has its own rate (36" $100 · 48" $190 ·
+60" $310 by default). Pick the size when you place one, or change it later in
+the **Placed add-ons** list under the canvas — the rate shown updates live and
+the wreath is redrawn to scale, so a 60" looks bigger than a 36" in the
+mock-up. The mock-up prompt states the real diameter too.
+
+Mixed sizes are priced as separate lines (2 × 36" and 1 × 60" is two rows, not
+an average). Unlit wreaths use the single unlit rate at any size; if the office
+wants sized unlit pricing, add `wreath_unlit_36/48/60` items in the Pricing
+Guide and the tool will use them automatically.
+
 ## Bush, shrub & tree strand math
 
 Strand counts come from real dimensions and the selected gap — a tighter wrap
@@ -256,7 +269,7 @@ their own rates and are unaffected.
 ## Tests
 
 ```
-node tests/pricing.test.js     # 35 assertions
+node tests/pricing.test.js     # 50 assertions
 node tests/geometry.test.js    # 80 assertions
 node tests/feedback.test.js    # 15 assertions
 ```

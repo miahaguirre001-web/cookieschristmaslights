@@ -11,8 +11,17 @@
 /* Strand math lives in 06b-geometry.js (dimensional, spacing-driven).
  * In the browser those functions are globals; in node tests we require them. */
 /* eslint-disable no-redeclare */
+/* NOTE: these `var` shims exist only for node tests. Never destructure a name
+ * that is declared with const/let in another browser-loaded file — in the
+ * browser both files share global scope and the redeclaration is a
+ * SyntaxError that silently kills this entire module (and all pricing).
+ * `var x` alongside a `function x` declaration is fine; `var x` alongside a
+ * `const x` is not. */
 if (typeof module !== "undefined" && typeof bushStrandBreakdown === "undefined") {
   var { bushStrandBreakdown, treeStrandBreakdown, strandsFromFootage } = require("./06b-geometry.js");
+}
+if (typeof module !== "undefined" && typeof addonPriceItem === "undefined") {
+  var addonPriceItem = require("./01-core-config.js").addonPriceItem;
 }
 
 /**
@@ -83,25 +92,38 @@ function computeQuote(measurements, marks, options, config) {
     }
   }
 
-  /* ---- add-on stamps ---- */
-  const addonCounts = {};
+  /* ---- add-on stamps ----
+   * Grouped by addon AND size, so a 36" and a 60" wreath are separate lines
+   * at their own rates rather than being averaged into one. */
+  const catalog = typeof ADDONS !== "undefined" ? ADDONS : NODE_ADDONS;
+  const resolveItem = typeof addonPriceItem === "function"
+    ? addonPriceItem
+    : (mk) => catalog.find((x) => x.id === mk.addonId)?.priceItem;
+
+  const addonGroups = {};
   for (const mk of marks || []) {
     if (mk.kind !== "addon" || mk.included === false) continue;
-    addonCounts[mk.addonId] = (addonCounts[mk.addonId] || 0) + 1;
+    const key = mk.addonId + (mk.addonSize ? "|" + mk.addonSize : "");
+    if (!addonGroups[key]) addonGroups[key] = { mark: mk, count: 0 };
+    addonGroups[key].count++;
   }
-  for (const [addonId, count] of Object.entries(addonCounts)) {
-    const a = (typeof ADDONS !== "undefined" ? ADDONS : NODE_ADDONS).find((x) => x.id === addonId);
+
+  for (const { mark: mk, count } of Object.values(addonGroups)) {
+    const a = catalog.find((x) => x.id === mk.addonId);
     if (!a) continue;
+    const sizeLabel = mk.addonSize ? ` ${mk.addonSize}"` : "";
     if (a.isWrapDesign) {
       // Pillar wrap: strands per wrap × count (2 × $50 = $100/pillar)
       const per = rules.pillarStrandsPerWrap || 2;
       assumptions.push(`Pillar wraps: ${count} × ${per} strands each`);
       addLine(a.priceItem, count * per, `Pillar / Column Wrap × ${count}`, `${count * per} strands`);
-    } else if (addonId === "garland") {
+    } else if (mk.addonId === "garland") {
       // Garland stamps: each stamp = 1 × 9ft strand unless measured separately
       addLine("garland_strand", count, `Garland × ${count}`, `${count} × ${rules.garlandStrandFt || 9} ft strand`);
     } else {
-      addLine(a.priceItem, count, `${a.label} × ${count}`);
+      const itemKey = resolveItem(mk) || a.priceItem;
+      if (sizeLabel) assumptions.push(`${a.label}${sizeLabel}: ${count} × ${sizeLabel.trim()} size`);
+      addLine(itemKey, count, `${a.label}${sizeLabel} × ${count}`, sizeLabel ? `${sizeLabel.trim()} wreath` : undefined);
     }
   }
 
@@ -164,8 +186,8 @@ function computeQuote(measurements, marks, options, config) {
 
 /* Minimal add-on catalog mirror for node tests (browser uses ADDONS) */
 const NODE_ADDONS = [
-  { id: "wreath_lit", priceItem: "wreath_36", label: "Wreath with lights" },
-  { id: "wreath_unlit", priceItem: "wreath_unlit", label: "Wreath without lights" },
+  { id: "wreath_lit", priceItem: "wreath_36", label: "Wreath with lights", sized: true },
+  { id: "wreath_unlit", priceItem: "wreath_unlit", label: "Wreath without lights", sized: true },
   { id: "pillar_wrap", priceItem: "pillar_strand", label: "Pillars (wrap lights)", isWrapDesign: true },
   { id: "bow_red", priceItem: "bow_red_lg", label: "Red Bow" },
   { id: "bow_striped", priceItem: "bow_striped", label: "Striped Bow" },

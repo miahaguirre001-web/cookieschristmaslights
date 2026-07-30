@@ -170,22 +170,92 @@ function renderToolButtons() {
 function renderAddonPicker() {
   const sel = document.getElementById("addon-select");
   sel.innerHTML = ADDONS.map((a) => `<option value="${a.id}">${a.label}</option>`).join("");
+
+  const sizeSel = document.getElementById("addon-size");
+  sizeSel.innerHTML = WREATH_SIZES.map((s) =>
+    `<option value="${s.id}" ${s.id === DEFAULT_WREATH_SIZE ? "selected" : ""}>${s.label}</option>`).join("");
+
+  const syncSizeVisibility = () => {
+    const wrap = document.getElementById("addon-size-wrap");
+    wrap.style.display = isWreath(sel.value) ? "" : "none";
+  };
+  sel.addEventListener("change", syncSizeVisibility);
+  syncSizeVisibility();
+
   document.getElementById("addon-add").addEventListener("click", () => {
     if (!Canvas.img) { alert("Import or upload a photo first."); return; }
     pushUndo();
     const a = ADDONS.find((x) => x.id === sel.value);
+    const size = isWreath(a.id) ? sizeSel.value : null;
+    // bigger wreaths are drawn bigger, so the mock-up reflects the real size
+    const base = 0.09;
+    const scale = size ? (WREATH_SIZES.find((s) => s.id === size)?.relScale || 1) : 1;
+    const dim = base * scale;
     project.marks.push({
       id: nextMarkId(),
       kind: "addon",
       addonId: a.id,
-      rect: { x: 0.45, y: 0.45, w: 0.1, h: 0.1 },
-      zoneLabel: a.label,
+      addonSize: size,
+      rect: { x: 0.45, y: 0.45, w: dim, h: dim },
+      zoneLabel: size ? `${a.label} ${WREATH_SIZES.find((s) => s.id === size).label}` : a.label,
       source: "manual",
       confidence: null,
       included: true,
       wrapStyle: a.isWrapDesign ? "wrap" : null,
     });
     touchMarks();
+  });
+
+  window.addEventListener("marks-changed", renderAddonList);
+  window.addEventListener("project-loaded", renderAddonList);
+  renderAddonList();
+}
+
+/* Placed add-ons list — lets the estimator change a wreath's size AFTER
+ * placing it, which is what actually changes the price. */
+function renderAddonList() {
+  const host = document.getElementById("addon-list");
+  if (!host) return;
+  const addons = project.marks.filter((m) => m.kind === "addon");
+  if (!addons.length) { host.innerHTML = ""; return; }
+  const cfg = loadPricingConfig();
+  host.innerHTML = `<div class="addon-list-head">Placed add-ons</div>` + addons.map((m) => {
+    const a = ADDONS.find((x) => x.id === m.addonId);
+    const key = addonPriceItem(m);
+    const rate = cfg.items[key]?.rate;
+    return `<div class="addon-row" data-id="${m.id}">
+      <span>${esc(a?.label || m.addonId)}</span>
+      ${isWreath(m.addonId)
+        ? `<select class="addon-row-size">${WREATH_SIZES.map((s) =>
+            `<option value="${s.id}" ${s.id === (m.addonSize || DEFAULT_WREATH_SIZE) ? "selected" : ""}>${s.label}</option>`).join("")}</select>`
+        : `<span class="hint">—</span>`}
+      <span class="addon-rate">${rate == null ? "<b class='conf low'>SET PRICE</b>" : "$" + rate.toFixed(2)}</span>
+      <button class="addon-row-del secondary">✕</button>
+    </div>`;
+  }).join("");
+
+  host.querySelectorAll(".addon-row").forEach((row) => {
+    const m = project.marks.find((x) => x.id === row.dataset.id);
+    const sizeSel = row.querySelector(".addon-row-size");
+    if (sizeSel) sizeSel.addEventListener("change", () => {
+      pushUndo();
+      m.addonSize = sizeSel.value;
+      const s = WREATH_SIZES.find((x) => x.id === sizeSel.value);
+      const a = ADDONS.find((x) => x.id === m.addonId);
+      m.zoneLabel = `${a.label} ${s.label}`;
+      // resize the drawn wreath so 60" looks bigger than 36"
+      const cx = m.rect.x + m.rect.w / 2, cy = m.rect.y + m.rect.h / 2;
+      const dim = 0.09 * s.relScale;
+      m.rect = { x: cx - dim / 2, y: cy - dim / 2, w: dim, h: dim };
+      touchMarks();
+      window.dispatchEvent(new CustomEvent("measurements-changed"));
+    });
+    row.querySelector(".addon-row-del").addEventListener("click", () => {
+      pushUndo();
+      project.marks = project.marks.filter((x) => x.id !== m.id);
+      touchMarks();
+      window.dispatchEvent(new CustomEvent("measurements-changed"));
+    });
   });
 }
 
@@ -578,7 +648,8 @@ function drawMark(ctx, m, W, H) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#ffcc33";
-    ctx.fillText(a?.label || m.addonId, x + w / 2, y + h + 14);
+    const sizeTag = m.addonSize ? ` ${WREATH_SIZES.find((s) => s.id === m.addonSize)?.label || ""}` : "";
+    ctx.fillText((a?.label || m.addonId) + sizeTag, x + w / 2, y + h + 14);
     // handles: ✕ delete (top-right), resize (bottom-right)
     ctx.fillStyle = "#fff";
     ctx.beginPath(); ctx.arc(x + w, y, 9, 0, 7); ctx.fill();

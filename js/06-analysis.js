@@ -108,8 +108,14 @@ function describeMarkGeometry(m) {
   }
   const a = ADDONS.find((x) => x.id === m.addonId);
   const r = m.rect;
-  const desc = ADDON_RENDER_HINTS[m.addonId] || "";
-  return `[${m.id}] add-on "${a?.label || m.addonId}" placed at (${pct(r.x + r.w / 2)}, ${pct(r.y + r.h / 2)}), approx ${pct(r.w)} wide × ${pct(r.h)} tall${desc ? " — " + desc : ""}${a?.isWrapDesign ? " — wrap lights around the EXISTING structure here; never add a new pillar/object" : ""}`;
+  let desc = ADDON_RENDER_HINTS[m.addonId] || "";
+  // Wreath size is a real physical difference — say it, so a 60" wreath is
+  // rendered noticeably larger than a 36" one.
+  if (m.addonSize && desc) {
+    desc = desc.replace("a round evergreen Christmas wreath", `a ${m.addonSize}-inch diameter round evergreen Christmas wreath`);
+  }
+  const sizeTag = m.addonSize ? ` (${m.addonSize}" diameter)` : "";
+  return `[${m.id}] add-on "${a?.label || m.addonId}${sizeTag}" placed at (${pct(r.x + r.w / 2)}, ${pct(r.y + r.h / 2)}), approx ${pct(r.w)} wide × ${pct(r.h)} tall${desc ? " — " + desc : ""}${a?.isWrapDesign ? " — wrap lights around the EXISTING structure here; never add a new pillar/object" : ""}`;
 }
 
 /* Core analysis, callable from the button AND the Auto-Estimate pipeline. */

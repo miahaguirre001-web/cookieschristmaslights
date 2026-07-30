@@ -25,10 +25,11 @@ Return ONLY JSON:
  "marks": [
   {"kind":"line|curve","lightType":"c9|c7|mini|multi|icicle","a":{"x":..,"y":..},"b":{"x":..,"y":..},"zoneLabel":"front eave"},
   {"kind":"area","areaKind":"bush|shrub","lightType":"mini","rect":{"x":..,"y":..,"w":..,"h":..},"zoneLabel":"bushes by porch","sizeClass":"small|medium|large|xl"},
-  {"kind":"addon","addonId":"wreath_lit|wreath_unlit|pillar_wrap|bow_red|bow_striped|garland|teardrop|deer_buck_l|deer_buck_r|deer_doe_l|deer_doe_r|deer_baby_l|deer_baby_r","rect":{"x":..,"y":..,"w":0.08,"h":0.08},"zoneLabel":"front door wreath"}
+  {"kind":"addon","addonId":"wreath_lit|wreath_unlit|pillar_wrap|bow_red|bow_striped|garland|teardrop|deer_buck_l|deer_buck_r|deer_doe_l|deer_doe_r|deer_baby_l|deer_baby_r","addonSize":"36|48|60","rect":{"x":..,"y":..,"w":0.08,"h":0.08},"zoneLabel":"front door wreath"}
  ],
  "colorScheme": "red_green|red_white|warm_white|multi|custom|null"
 }
+"addonSize" applies to wreaths ONLY and changes the price — use it when a size is spoken ("48 inch wreath", "big wreath" → 60, "small wreath" → 36); default "36" when unspecified.
 Rules: trace the ACTUAL visible edges in the photo (e.g. "whole front roofline" = the real eave line you can see). Exclusions ("skip the garage") mean: do NOT create marks there, and list any existing marks on that feature in removeMarkIds. "Wrap the pillars" = one pillar_wrap addon per visible pillar, placed on each. If a request is ambiguous (e.g. "the windows" when 5 are visible), put ONE short question in clarifications and DO NOT guess that part — still return the unambiguous marks. Keep zoneLabels under 4 words.`;
 }
 
@@ -96,9 +97,12 @@ function applyVoiceDesign(parsed) {
     } else if (m.kind === "addon" && m.rect && isRect(m.rect)) {
       const a = ADDONS.find((x) => x.id === m.addonId);
       if (!a) continue;
+      const size = isWreath(m.addonId)
+        ? (WREATH_SIZES.some((s) => s.id === m.addonSize) ? m.addonSize : DEFAULT_WREATH_SIZE)
+        : null;
       project.marks.push({
-        id: nextMarkId(), kind: "addon", addonId: m.addonId, rect: m.rect,
-        zoneLabel: m.zoneLabel || a.label,
+        id: nextMarkId(), kind: "addon", addonId: m.addonId, addonSize: size, rect: m.rect,
+        zoneLabel: m.zoneLabel || (size ? `${a.label} ${size}"` : a.label),
         source: "voice", confidence: null, included: true,
         wrapStyle: a.isWrapDesign ? "wrap" : null,
       });
