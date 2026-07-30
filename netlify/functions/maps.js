@@ -19,11 +19,25 @@ exports.handler = async (event) => {
       return { statusCode: res.status, headers: { "Content-Type": "application/json" }, body: await res.text() };
     }
     if (q.op === "streetview") {
-      const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${q.lat},${q.lng}&source=outdoor&fov=80&key=${key}`;
+      // Optional heading/fov for multi-angle capture (depth + side rooflines).
+      // Omitting heading lets Google point at the address automatically.
+      const heading = q.heading !== undefined && q.heading !== "" ? `&heading=${encodeURIComponent(q.heading)}` : "";
+      const fov = q.fov ? `&fov=${encodeURIComponent(q.fov)}` : "&fov=80";
+      const pitch = q.pitch ? `&pitch=${encodeURIComponent(q.pitch)}` : "";
+      const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${q.lat},${q.lng}&source=outdoor${fov}${heading}${pitch}&key=${key}`;
       return await imageResponse(url, "image/jpeg");
     }
+    if (q.op === "streetview_meta") {
+      // Cheap/free check: does Street View exist here, and at what heading?
+      const res = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${q.lat},${q.lng}&source=outdoor&key=${key}`);
+      return { statusCode: res.status, headers: { "Content-Type": "application/json" }, body: await res.text() };
+    }
     if (q.op === "satellite") {
-      const url = `https://maps.googleapis.com/maps/api/staticmap?center=${q.lat},${q.lng}&zoom=20&size=640x640&scale=2&maptype=satellite&key=${key}`;
+      // zoom is caller-selectable: 20 covers a typical lot, 21 doubles the
+      // resolution for small/urban lots. The client records which zoom was
+      // used so the ft/pixel math stays exact.
+      const zoom = Math.min(21, Math.max(17, parseInt(q.zoom, 10) || 20));
+      const url = `https://maps.googleapis.com/maps/api/staticmap?center=${q.lat},${q.lng}&zoom=${zoom}&size=640x640&scale=2&maptype=satellite&key=${key}`;
       return await imageResponse(url, "image/png");
     }
     return json(400, { error: "Unknown op" });

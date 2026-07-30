@@ -73,6 +73,9 @@ function newProject() {
     updatedAt: Date.now(),
     photo: null,          // dataURL — the house photo (Street View or upload)
     satellite: null,      // dataURL — roof reference, rides along
+    satelliteZoom: 20,    // which zoom the satellite was fetched at (scale math)
+    altViews: [],         // extra Street View headings for depth cues
+    footprint: null,      // traced satellite footprint (edges usable directly)
     photoSource: null,    // 'streetview' | 'upload'
     colorScheme: "red_green",
     customSequence: [],   // ordered swatch ids, max 4

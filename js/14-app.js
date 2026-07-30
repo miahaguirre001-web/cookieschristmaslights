@@ -20,9 +20,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initVoice();
   initAnalysis();
   initMeasurements();
+  initRuler();
   initPricingGuide();
   initPriceSheet();
   initMockup();
+  initFeedback();
   initRouter();
   initNewEstimate();
 

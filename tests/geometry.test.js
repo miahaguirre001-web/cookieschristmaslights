@@ -6,6 +6,8 @@ const {
   satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
   spacingInches, bushLightFootage, treeLightFootage, strandsFromFootage,
   bushStrandBreakdown, treeStrandBreakdown,
+  pitchFactor, assumedPitch, applyPitchToPlanLength,
+  footprintEdges, frontEdgeOf, rooflineFromEdge,
 } = require("../js/06b-geometry.js");
 
 let pass = 0, fail = 0;
@@ -159,6 +161,63 @@ console.log("Tree footage: trunk/branch dimensional — NOT just height");
   // sane defaults when only height known
   const bare = treeStrandBreakdown({ heightFt: 12 }, RULES);
   eq("height-only estimate still produces sane strands (1-6)", bare.strands >= 1 && bare.strands <= 6, true);
+}
+
+console.log("Zoom-aware scale (a wrong zoom would double every measurement)");
+{
+  const at20 = satelliteFtPerNorm(42, 20);
+  const at21 = satelliteFtPerNorm(42, 21);
+  approx("zoom 21 covers exactly half the ground of zoom 20", at21, at20 / 2, 0.01);
+  const p1 = { x: 0.4, y: 0.5 }, p2 = { x: 0.6, y: 0.5 };
+  approx("same drag = half the feet at zoom 21", satDistFt(p1, p2, 42, 21), satDistFt(p1, p2, 42, 20) / 2, 0.01);
+  eq("default zoom is 20 (back-compat with saved projects)", satDistFt(p1, p2, 42), satDistFt(p1, p2, 42, 20));
+}
+
+console.log("Pitch correction (slope math, applied to MEASURED lengths)");
+{
+  eq("flat/no pitch → ×1", pitchFactor(0), 1);
+  approx("6/12 → ×1.118", pitchFactor(6), 1.118, 0.001);
+  approx("12/12 (45°) → ×1.414", pitchFactor(12), 1.414, 0.001);
+  approx("9/12 → ×1.25", pitchFactor(9), 1.25, 0.001);
+  eq("absurd pitch clamped at 18/12", pitchFactor(99), pitchFactor(18));
+  // only sloped kinds are corrected
+  eq("eave NOT corrected (already horizontal)", applyPitchToPlanLength(40, "eave", 9).applied, false);
+  eq("ridge NOT corrected", applyPitchToPlanLength(40, "ridge", 9).applied, false);
+  eq("ground run NOT corrected", applyPitchToPlanLength(40, "ground", 9).applied, false);
+  eq("rake IS corrected", applyPitchToPlanLength(40, "rake", 9).applied, true);
+  approx("rake 40 ft plan @9/12 → 50 ft true", applyPitchToPlanLength(40, "rake", 9).ft, 50, 0.1);
+  eq("gable/dormer/peak also sloped",
+    ["gable", "dormer", "peak"].every((k) => applyPitchToPlanLength(20, k, 8).applied), true);
+  // assumed pitch per complexity
+  eq("hard roof assumes 9/12", assumedPitch("hard"), 9);
+  eq("mid assumes 5/12", assumedPitch("mid"), 5);
+  eq("easy assumes 3/12", assumedPitch("easy"), 3);
+}
+
+console.log("Direct edge measurement from the footprint");
+{
+  const lat = 42, ftPer = satelliteFtPerNorm(lat, 20);
+  const w = 52 / ftPer, h = 30 / ftPer;
+  const fp = [
+    { x: 0.5 - w / 2, y: 0.5 - h / 2 }, { x: 0.5 + w / 2, y: 0.5 - h / 2 },
+    { x: 0.5 + w / 2, y: 0.5 + h / 2 }, { x: 0.5 - w / 2, y: 0.5 + h / 2 },
+  ];
+  const edges = footprintEdges(fp, lat, 20);
+  eq("4 edges from a rectangle", edges.length, 4);
+  approx("edge 0 (top) = 52 ft", edges[0].ft, 52, 0.2);
+  approx("edge 1 (right) = 30 ft", edges[1].ft, 30, 0.2);
+  eq("horizontal edge reads ~0°", edges[0].angleDeg < 5 || edges[0].angleDeg > 175, true);
+  eq("vertical edge reads ~90°", Math.abs(edges[1].angleDeg - 90) < 5, true);
+  // front edge selection
+  approx("explicit front index honored", frontEdgeOf(edges, 2).ft, 52, 0.2);
+  const auto = frontEdgeOf(edges, null);
+  eq("auto-pick chooses a long street-facing edge", auto.ft > 40, true);
+  eq("auto-pick prefers the lower (street-side) edge", auto.mid.y > 0.5, true);
+  // overhang
+  approx("52 ft edge + 12\" each side = 54 ft roofline", rooflineFromEdge(52, 12), 54, 0.01);
+  approx("overhang configurable (6\")", rooflineFromEdge(52, 6), 53, 0.01);
+  eq("empty footprint → no edges", footprintEdges([], lat, 20).length, 0);
+  eq("frontEdgeOf handles empty", frontEdgeOf([], 0), null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -176,8 +176,19 @@ async function autoCalibrateFromSatellite(onStatus = () => {}) {
   }, onStatus);
   const parsed = validateShape(extractJSON(text), { footprint: "array", confidence: "number" }, "Satellite footprint");
 
-  const fp = computeSatFootprint(parsed.footprint, parsed.frontEdge, project.lat);
+  const satZoom = project.satelliteZoom || 20;
+  const fp = computeSatFootprint(parsed.footprint, parsed.frontEdge, project.lat, satZoom);
   if (!fp) return;
+
+  // Keep the traced footprint so edges can be used as DIRECT measurements
+  project.footprint = {
+    points: parsed.footprint,
+    frontEdge: parsed.frontEdge,
+    confidence: parsed.confidence ?? 0.5,
+    edges: footprintEdges(parsed.footprint, project.lat, satZoom),
+    zoom: satZoom,
+    lat: project.lat,
+  };
 
   const factor = calibrationFactorFrom(fp.frontFt, aiFront);
   const satCheck = {
@@ -200,6 +211,67 @@ async function autoCalibrateFromSatellite(onStatus = () => {}) {
     ];
   }
   project.analysis.satCheck = satCheck;
+
+  // Now that scale is settled, replace AI-estimated horizontal roofline
+  // lengths with DIRECT footprint-edge measurements where they match.
+  applyDirectEdgeMeasurements();
+  applyPitchCorrections();
+}
+
+/* ---- Direct edge measurement ----
+ * For the main street-facing roofline, the satellite footprint edge IS the
+ * measurement (plus eave overhang). Replace the AI estimate when the two are
+ * in the same ballpark; if they disagree wildly, keep the AI value and warn
+ * rather than silently swapping in a possibly-mistraced edge. */
+function applyDirectEdgeMeasurements() {
+  const fpr = project.footprint;
+  if (!fpr || !fpr.edges?.length) return;
+  if ((fpr.confidence ?? 0) < 0.5) return;
+
+  const cfg = loadPricingConfig();
+  const overhangIn = cfg.rules.eaveOverhangIn ?? 12;
+  const front = frontEdgeOf(fpr.edges, fpr.frontEdge);
+  if (!front) return;
+  const directFt = rooflineFromEdge(front.ft, overhangIn);
+
+  // The longest marked front-facing horizontal roofline row
+  const candidates = project.measurements.filter(
+    (r) => r.source === "AI Estimated" && (r.zoneKind === "eave" || r.zoneKind === "garage")
+  );
+  if (!candidates.length) return;
+  const target = candidates.reduce((a, b) => (b.value > a.value ? b : a));
+
+  const ratio = directFt / (target.value || directFt);
+  if (ratio < 0.6 || ratio > 1.7) {
+    project.analysis.warnings = [
+      ...(project.analysis.warnings || []),
+      `Satellite front edge (${directFt} ft incl. overhang) differs from the photo estimate for "${target.zoneLabel}" (${target.value} ft) — verify which is right.`,
+    ];
+    return;
+  }
+  target.value = directFt;
+  target.imageSource = "satellite";
+  target.measuredDirect = true;
+  target.confidence = Math.max(target.confidence ?? 0.5, 0.9);
+  target.basis = `measured directly from satellite footprint edge (${front.ft} ft + ${overhangIn}" overhang each end)`;
+}
+
+/* ---- Pitch correction for sloped runs ----
+ * Satellite/plan distances are horizontal; a rake's true surface length is
+ * plan × √(1+(pitch/12)²). Applied ONLY to sloped zone kinds, once, and
+ * always disclosed in the row's basis. */
+function applyPitchCorrections() {
+  const pitch = project.analysis?.roofPitchPer12 || assumedPitch(project.analysis?.roofComplexity);
+  for (const r of project.measurements) {
+    if (r.pitchApplied) continue;                  // never double-apply
+    if (r.source !== "AI Estimated") continue;     // never touch reviewed rows
+    const res = applyPitchToPlanLength(r.value, r.zoneKind, pitch);
+    if (!res.applied) continue;
+    r.planFt = r.value;
+    r.value = res.ft;
+    r.pitchApplied = res.factor;
+    r.basis = `${r.basis ? r.basis + " · " : ""}slope ${pitch}/12 → ×${res.factor} (${r.planFt}→${r.value} ft)`;
+  }
 }
 
 function initAnalysis() {

@@ -34,6 +34,7 @@ const RULE_FIELDS = [
   ["spacingTightIn", 'Tight wrap gap (inches)'],
   ["spacingStandardIn", 'Standard wrap gap (inches)'],
   ["spacingWideIn", 'Wide wrap gap (inches)'],
+  ["eaveOverhangIn", "Eave overhang per side (inches)"],
 ];
 
 function renderPricingGuide() {

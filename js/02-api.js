@@ -186,10 +186,17 @@ async function callGeminiImage({ prompt, imageDataUrls }, onStatus) {
 /* ---- Maps ---- */
 const geocodeAddress = (address) =>
   apiFetch(`/maps?op=geocode&address=${encodeURIComponent(address)}`);
-const fetchStreetView = (lat, lng) =>
-  apiFetch(`/maps?op=streetview&lat=${lat}&lng=${lng}`).then((d) => `data:${d.mimeType};base64,${d.image}`);
-const fetchSatellite = (lat, lng) =>
-  apiFetch(`/maps?op=satellite&lat=${lat}&lng=${lng}`).then((d) => `data:${d.mimeType};base64,${d.image}`);
+const fetchStreetView = (lat, lng, opts = {}) => {
+  const q = new URLSearchParams({ op: "streetview", lat, lng });
+  if (opts.heading !== undefined) q.set("heading", opts.heading);
+  if (opts.fov) q.set("fov", opts.fov);
+  return apiFetch(`/maps?${q}`).then((d) => `data:${d.mimeType};base64,${d.image}`);
+};
+const fetchStreetViewMeta = (lat, lng) =>
+  apiFetch(`/maps?op=streetview_meta&lat=${lat}&lng=${lng}`);
+/* zoom 20 = ~233 ft across at lat 42; zoom 21 = half that span, double detail */
+const fetchSatellite = (lat, lng, zoom = 20) =>
+  apiFetch(`/maps?op=satellite&lat=${lat}&lng=${lng}&zoom=${zoom}`).then((d) => `data:${d.mimeType};base64,${d.image}`);
 const fetchHealth = () => apiFetch("/health");
 
 /* Live end-to-end check used by the Settings "Test connections" button.

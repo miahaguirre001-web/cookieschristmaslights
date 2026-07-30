@@ -69,16 +69,18 @@ function satelliteFtPerNorm(lat, zoom = SAT_ZOOM, logicalPx = SAT_LOGICAL_PX) {
   return logicalPx * mPerPx * M_TO_FT;
 }
 
-function satDistFt(p1, p2, lat) {
-  return Math.hypot(p2.x - p1.x, p2.y - p1.y) * satelliteFtPerNorm(lat);
+/* zoom MUST match the tile that was actually fetched — zoom 21 covers half
+ * the ground of zoom 20, so using the wrong one doubles every measurement. */
+function satDistFt(p1, p2, lat, zoom = SAT_ZOOM) {
+  return Math.hypot(p2.x - p1.x, p2.y - p1.y) * satelliteFtPerNorm(lat, zoom);
 }
 
-function computeSatFootprint(footprint, frontIdx, lat) {
+function computeSatFootprint(footprint, frontIdx, lat, zoom = SAT_ZOOM) {
   if (!Array.isArray(footprint) || footprint.length < 3) return null;
   const n = footprint.length;
   const edges = [];
   for (let i = 0; i < n; i++) {
-    edges.push({ i, ft: satDistFt(footprint[i], footprint[(i + 1) % n], lat) });
+    edges.push({ i, ft: satDistFt(footprint[i], footprint[(i + 1) % n], lat, zoom) });
   }
   const perimeterFt = edges.reduce((s, e) => s + e.ft, 0);
   let front = (Number.isInteger(frontIdx) && frontIdx >= 0 && frontIdx < n) ? edges[frontIdx] : null;
@@ -99,6 +101,79 @@ function calibrationFactorFrom(satFrontFt, aiFrontFt) {
   if (factor < 0.4 || factor > 2.5) return null;
   return Math.round(factor * 1000) / 1000;
 }
+
+/* ---- Pitch correction for SLOPED runs ----
+ * Satellite measures PLAN (horizontal) distance. A rake/gable/dormer slope's
+ * true length along the roof surface is longer:
+ *     true = plan × √(1 + (pitch/12)²)
+ * This corrects a MEASURED length; it does not invent a height. Eaves,
+ * gutters, ridges and ground runs are already horizontal — no correction. */
+const SLOPED_ZONE_KINDS = new Set(["rake", "gable", "peak", "dormer"]);
+
+function pitchFactor(pitchPer12) {
+  const p = Number(pitchPer12);
+  if (!(p > 0)) return 1;
+  const clamped = Math.min(p, 18);          // 18/12 is about as steep as roofs get
+  return Math.round(Math.sqrt(1 + Math.pow(clamped / 12, 2)) * 1000) / 1000;
+}
+
+/* Typical pitch to assume per complexity when the model gives no number */
+function assumedPitch(complexity) {
+  return complexity === "hard" ? 9 : complexity === "easy" ? 3 : 5;
+}
+
+/* Apply only to sloped zone kinds; returns {ft, factor, applied}. */
+function applyPitchToPlanLength(planFt, zoneKind, pitchPer12) {
+  if (!SLOPED_ZONE_KINDS.has(zoneKind) || !(planFt > 0)) {
+    return { ft: planFt, factor: 1, applied: false };
+  }
+  const f = pitchFactor(pitchPer12);
+  return { ft: Math.round(planFt * f * 10) / 10, factor: f, applied: f > 1 };
+}
+
+/* ---- Direct edge measurement ----
+ * The traced footprint already contains every edge length. For horizontal
+ * roof runs the footprint edge IS the measurement (plus eave overhang on
+ * each end), so we can price from arithmetic instead of AI estimation.
+ * Matching is by orientation + position: a marked run's direction and
+ * midpoint in the street photo maps to the footprint edge that faces the
+ * street and runs the same way. */
+
+/* Edge list with lengths, midpoints and compass-ish orientation. */
+function footprintEdges(footprint, lat, zoom = SAT_ZOOM) {
+  if (!Array.isArray(footprint) || footprint.length < 3) return [];
+  const n = footprint.length;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = footprint[i], b = footprint[(i + 1) % n];
+    const ft = satDistFt(a, b, lat, zoom);
+    out.push({
+      i, a, b, ft: Math.round(ft * 10) / 10,
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      // angle in image space, 0 = horizontal (east-west), 90 = vertical
+      angleDeg: Math.round(Math.abs(Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI) % 180),
+    });
+  }
+  return out;
+}
+
+/* The street-facing edge: prefer the caller's index, else the longest edge
+ * closest to the bottom of the frame (Street View is shot from the road). */
+function frontEdgeOf(edges, frontIdx) {
+  if (!edges.length) return null;
+  if (Number.isInteger(frontIdx) && edges[frontIdx] && edges[frontIdx].ft >= 8) return edges[frontIdx];
+  const maxFt = Math.max(...edges.map((e) => e.ft));
+  const longish = edges.filter((e) => e.ft >= maxFt * 0.6);
+  return longish.reduce((best, e) => (e.mid.y > best.mid.y ? e : best), longish[0]);
+}
+
+/* Roofline length from a footprint edge, adding eave overhang at both ends.
+ * overhangIn defaults to 12" per side (typical residential). */
+function rooflineFromEdge(edgeFt, overhangIn = 12) {
+  return Math.round((edgeFt + (2 * overhangIn) / 12) * 10) / 10;
+}
+
+
 
 /* =========================================================================
  * PLANT & TREE STRAND MATH — dimensional, spacing-driven.
@@ -230,5 +305,7 @@ if (typeof module !== "undefined") {
     satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
     spacingInches, bushLightFootage, treeLightFootage, strandsFromFootage,
     bushStrandBreakdown, treeStrandBreakdown, SPACING_KEYS,
+    pitchFactor, assumedPitch, applyPitchToPlanLength, SLOPED_ZONE_KINDS,
+    footprintEdges, frontEdgeOf, rooflineFromEdge,
   };
 }

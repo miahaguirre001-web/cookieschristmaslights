@@ -34,6 +34,9 @@ const DEFAULT_PRICING = {
     spacingTightIn: 4,
     spacingStandardIn: 6,
     spacingWideIn: 10,
+    /* Eave overhang added to each end when a roofline is measured directly
+     * from the satellite footprint edge (inches per side). */
+    eaveOverhangIn: 12,
   },
   /* Every line item reads its rate from here at calculation time.
    * rate:null means "office must set a price" — the engine REFUSES to

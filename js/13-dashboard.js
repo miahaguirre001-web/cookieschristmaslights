@@ -17,6 +17,7 @@ function route() {
   if (view) view.style.display = "";
   if (hash === "#dashboard") renderDashboard().catch(console.error);
   if (hash === "#pricing") renderPricingGuide();
+  if (hash === "#accuracy") renderFeedback();
   if (hash === "#settings") renderSettings();
 }
 

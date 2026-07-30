@@ -213,6 +213,21 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 .cx small { font-weight: 400; }
 .cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
 
+/* satellite ruler */
+#ruler-canvas {
+  width: 100%; max-width: 640px; display: block; margin: 10px 0;
+  border-radius: 8px; border: 1px solid var(--line);
+  touch-action: none; cursor: crosshair;
+}
+#ruler-readout { margin-bottom: 8px; }
+.ruler-ft { color: #00e5ff; font-size: 22px; }
+#ruler-box { margin-top: 10px; }
+.alt-strip { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.alt-strip img {
+  width: 120px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer;
+}
+.alt-strip img:hover { border-color: var(--gold); }
+
 /* measurement review: plant & tree dimension editors */
 .peak-tag {
   background: rgba(245,185,66,.18); color: var(--gold);

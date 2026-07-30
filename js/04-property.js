@@ -46,19 +46,46 @@ function initProperty() {
   $find.addEventListener("click", () => withBusy($find, async () => {
     if (!(await geocode())) return;
     setStatus($status, "Pulling Street View + satellite…");
+
+    // Street View metadata tells us the true camera heading toward the house,
+    // so the extra angles are offsets from a real bearing rather than guesses.
+    let baseHeading = null;
+    try {
+      const meta = await fetchStreetViewMeta(project.lat, project.lng);
+      if (meta.status === "OK" && meta.location) {
+        baseHeading = bearingTo(meta.location.lat, meta.location.lng, project.lat, project.lng);
+      }
+    } catch { /* non-fatal */ }
+
+    const zoom = document.getElementById("prop-sat-zoom")?.value || "20";
     const [sv, sat] = await Promise.allSettled([
-      fetchStreetView(project.lat, project.lng),
-      fetchSatellite(project.lat, project.lng),
+      fetchStreetView(project.lat, project.lng, baseHeading != null ? { heading: baseHeading } : {}),
+      fetchSatellite(project.lat, project.lng, zoom),
     ]);
-    if (sv.status === "fulfilled") {
-      await setProjectPhoto(sv.value, "streetview");
-    }
-    if (sat.status === "fulfilled") project.satellite = sat.value;
+    if (sv.status === "fulfilled") await setProjectPhoto(sv.value, "streetview");
+    if (sat.status === "fulfilled") { project.satellite = sat.value; project.satelliteZoom = +zoom; }
     renderSatelliteThumb();
+
+    // Extra angles: ±35° from the house-facing bearing. These give the AI
+    // depth cues for bushes/trees and reveal side rooflines a single frame
+    // can't show. Non-fatal — the main photo is what the workflow needs.
+    if (sv.status === "fulfilled" && baseHeading != null) {
+      setStatus($status, "Imported. Fetching extra angles…");
+      const extras = await Promise.allSettled([
+        fetchStreetView(project.lat, project.lng, { heading: (baseHeading + 325) % 360, fov: 90 }),
+        fetchStreetView(project.lat, project.lng, { heading: (baseHeading + 35) % 360, fov: 90 }),
+      ]);
+      project.altViews = extras.filter((r) => r.status === "fulfilled").map((r) => r.value);
+    } else {
+      project.altViews = [];
+    }
+    renderAltViews();
+
     if (sv.status !== "fulfilled") {
       setStatus($status, "No Street View here — upload a photo instead.", "warn");
     } else {
-      setStatus($status, "Imported. Scroll down to design the lights.", "ok");
+      const n = (project.altViews || []).length;
+      setStatus($status, `Imported${n ? ` (+${n} extra angle${n > 1 ? "s" : ""} for depth)` : ""}. Scroll down to design the lights.`, "ok");
     }
     scheduleSave();
   }));
@@ -72,9 +99,11 @@ function initProperty() {
 
   $sat.addEventListener("click", () => withBusy($sat, async () => {
     if (!project.lat && !(await geocode())) return;
-    project.satellite = await fetchSatellite(project.lat, project.lng);
+    const zoom = document.getElementById("prop-sat-zoom")?.value || "20";
+    project.satellite = await fetchSatellite(project.lat, project.lng, zoom);
+    project.satelliteZoom = +zoom;
     renderSatelliteThumb();
-    setStatus($status, "Satellite imported.", "ok");
+    setStatus($status, `Satellite imported (zoom ${zoom}).`, "ok");
     scheduleSave();
   }));
 
@@ -111,8 +140,38 @@ async function setProjectPhoto(dataUrl, source) {
 function renderSatelliteThumb() {
   const el = document.getElementById("prop-satellite-thumb");
   el.innerHTML = project.satellite
-    ? `<img src="${project.satellite}" alt="Satellite roof reference"><span class="thumb-label">Roof reference</span>`
+    ? `<img src="${project.satellite}" alt="Satellite roof reference"><span class="thumb-label">Roof ref · z${project.satelliteZoom || 20}</span>`
     : "";
+}
+
+/* Extra Street View angles — click one to make it the working photo. */
+function renderAltViews() {
+  const el = document.getElementById("prop-alt-views");
+  if (!el) return;
+  const views = project.altViews || [];
+  if (!views.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<small>Extra angles (used for depth; click to switch the working photo):</small><div class="alt-strip">` +
+    views.map((v, i) => `<img src="${v}" data-i="${i}" alt="Alternate angle ${i + 1}">`).join("") + `</div>`;
+  el.querySelectorAll("img").forEach((im) =>
+    im.addEventListener("click", async () => {
+      const chosen = views[+im.dataset.i];
+      const previous = project.photo;
+      await setProjectPhoto(chosen, "streetview");
+      // keep the swapped-out frame available as an alternate
+      project.altViews = views.map((v, i) => (i === +im.dataset.i ? previous : v));
+      renderAltViews();
+      scheduleSave();
+    })
+  );
+}
+
+/* Compass bearing from the camera position to the house (degrees, 0 = north) */
+function bearingTo(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return Math.round(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360);
 }
 
 function readFileAsDataURL(file) {

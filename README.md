@@ -110,7 +110,13 @@ Seeded from `2026 Christmas Lights Price Guide.xlsx` (July 2026).
 
 ## How measurements are produced (accuracy chain)
 
-Four layers, in order — each one narrows the error:
+Six layers, in order — each one narrows the error:
+
+0. **Satellite ruler (most accurate).** Drag along any roof edge on the
+   satellite image and get exact feet. No AI is involved at all — the tile's
+   ground resolution is known, so it's arithmetic. Use it as a measurement
+   directly, or as the calibration source for everything else. Rows added
+   this way are marked exact and are never rescaled afterward.
 
 1. **Dual-source analysis.** The AI receives the front photo, the markup, and
    the satellite image together. It measures only marked sections, matching
@@ -120,15 +126,45 @@ Four layers, in order — each one narrows the error:
    feet-per-pixel at any latitude, so the building's front width is computed
    with pure geometry — no guessing — and every AI measurement is rescaled to
    match. Guard rails reject implausible traces rather than applying them.
-3. **Dimensional strand math.** Bushes and trees are never priced from width
+3. **Direct edge measurement.** The traced footprint's street-facing edge IS
+   the front roofline (plus eave overhang, configurable). When it agrees with
+   the photo estimate, the measured value replaces the estimate outright; when
+   it disagrees wildly, the tool warns instead of silently swapping.
+4. **Pitch correction.** Satellite measures flat (plan) distance, so sloped
+   runs — rakes, gables, dormers — are multiplied by √(1+(pitch/12)²) to get
+   true surface length. Eaves, ridges and ground runs are already horizontal
+   and are never corrected. Every correction is shown in the row's basis.
+5. **Dimensional strand math.** Bushes and trees are never priced from width
    or height alone (see below).
-4. **Human review.** Nothing is priced until you've seen it. The AI estimate
+6. **Human review.** Nothing is priced until you've seen it. The AI estimate
    and the final value are both kept and both visible.
 
 Safeguards: duplicate sections are dropped, unselected marks are never
 measured, garage rooflines price as rooflines, low-confidence rows stay
 flagged (calibration corrects *scale*, so it can't clear an occlusion
 warning), and rows you've edited are never silently rescaled afterward.
+
+## Learning from finished jobs (Accuracy tab)
+
+After each install, record what the tool estimated versus what the crew
+actually used. The tool computes its own bias per zone type using the
+**median** ratio (so one mistyped job can't skew it) and shows a suggested
+correction factor. Factors are applied only when you press the button, only
+for zone types with 5+ recorded jobs, and never to rows you've reviewed or
+measured exactly.
+
+This is measured data rather than model tuning, and it's the accuracy source
+that keeps improving on its own. Export the records any time for backup.
+
+## Capture options
+
+- **Find** imports Street View + satellite together, and additionally pulls
+  two extra Street View angles (±35° from the true house-facing bearing).
+  Extra angles give the AI depth cues for bushes and trees and reveal side
+  rooflines; click any thumbnail to make it the working photo.
+- **Sat detail** selects satellite zoom. Standard (z20) suits a typical lot;
+  High (z21) doubles the resolution for small or urban lots. The zoom used is
+  recorded with the project so the scale math stays exact.
 
 ## Bush, shrub & tree strand math
 
@@ -178,7 +214,8 @@ their own rates and are unaffected.
 
 ```
 node tests/pricing.test.js     # 35 assertions
-node tests/geometry.test.js    # 51 assertions
+node tests/geometry.test.js    # 80 assertions
+node tests/feedback.test.js    # 15 assertions
 ```
 
 Pricing: dimensional strand math, spacing effect on price, manual overrides,
