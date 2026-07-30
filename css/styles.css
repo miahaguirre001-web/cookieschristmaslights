@@ -213,29 +213,22 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 .cx small { font-weight: 400; }
 .cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
 
-/* peak calculator */
-.peak-calc {
-  background: var(--panel2); border: 1px solid var(--line);
-  border-radius: 8px; padding: 10px 12px; margin: 12px 0;
-}
-.peak-calc summary { cursor: pointer; color: var(--gold); }
-.peak-metrics {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px; margin: 10px 0 4px;
-}
-.peak-metrics div {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 8px; padding: 8px 10px;
-}
-.peak-metrics span { display: block; font-size: 11px; color: var(--muted); }
-.peak-metrics b { font-size: 19px; }
-.peak-metrics b.gold { color: var(--gold); }
+/* measurement review: plant & tree dimension editors */
 .peak-tag {
   background: rgba(245,185,66,.18); color: var(--gold);
   border-radius: 4px; padding: 1px 5px; font-size: 10px;
 }
-td .meas-base { width: 80px; }
-#pg-peak input { width: 100%; }
+.pt-editor {
+  display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;
+  background: var(--panel2); border-radius: 8px; margin: 4px 0;
+}
+.pt-editor label {
+  display: flex; flex-direction: column; gap: 3px;
+  font-size: 11px; color: var(--muted);
+}
+.pt-editor input, .pt-editor select { font-size: 13px; padding: 5px 7px; }
+tr.low-conf-row td { background: rgba(255,152,0,.07); }
+.meas-detail { padding: 2px 8px; margin-right: 4px; }
 
 /* mockup */
 .mockup-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }

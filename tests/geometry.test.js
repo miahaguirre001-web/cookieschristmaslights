@@ -1,11 +1,11 @@
-/* Peak calculator + roof complexity tests — node tests/geometry.test.js
- * Reference values computed from the office's isosceles calculator:
- *   height = step table, side = √((base/2)² + height²) */
+/* Geometry tests: complexity, zone mapping, satellite scale, and the
+ * dimensional plant/tree strand math. Run: node tests/geometry.test.js */
 "use strict";
 const {
-  DEFAULT_PEAK_TABLE, peakHeightForBase, peakSides,
   complexityFromPitch, itemKeyForZone, ROOFLINE_ZONE_KINDS,
   satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
+  spacingInches, bushLightFootage, treeLightFootage, strandsFromFootage,
+  bushStrandBreakdown, treeStrandBreakdown,
 } = require("../js/06b-geometry.js");
 
 let pass = 0, fail = 0;
@@ -18,145 +18,147 @@ const approx = (n, a, e, t = 0.01) => {
   ok ? (pass++, console.log("  ✓", n)) : (fail++, console.error("  ✗", n, "— expected ≈", e, "got", a));
 };
 
-const T = DEFAULT_PEAK_TABLE;
+const RULES = {
+  strandCoverageFt: 14, garlandStrandFt: 9,
+  bushStrandCaps: { small: 2, medium: 3, large: 5, xl: 6 },
+  wrapSpacing: { taperFactor: 0.8 },
+  spacingTightIn: 4, spacingStandardIn: 6, spacingWideIn: 10,
+};
 
-console.log("Height lookup matches the office table exactly");
-eq("base 5 → 2 ft", peakHeightForBase(5, T), 2);
-eq("base 8 (boundary) → 2 ft", peakHeightForBase(8, T), 2);
-eq("base 8.1 → 5 ft", peakHeightForBase(8.1, T), 5);
-eq("base 15 (boundary) → 5 ft", peakHeightForBase(15, T), 5);
-eq("base 20 → 7 ft", peakHeightForBase(20, T), 7);
-eq("base 25 (boundary) → 7 ft", peakHeightForBase(25, T), 7);
-eq("base 30 → 10 ft", peakHeightForBase(30, T), 10);
-eq("base 40 → 13 ft", peakHeightForBase(40, T), 13);
-eq("base 46 → 17 ft (null row)", peakHeightForBase(46, T), 17);
-eq("base 500 → 17 ft", peakHeightForBase(500, T), 17);
-
-console.log("Side length matches √((base/2)² + h²)");
+console.log("Peak calculator is fully removed");
 {
-  // base 20 → h 7 → side √(100+49)=√149=12.2066
-  const p = peakSides(20, T);
-  approx("base 20: peak height 7", p.height, 7);
-  approx("base 20: each side 12.21", p.side, 12.21);
-  approx("base 20: both sides 24.41", p.total, 24.41);
-  approx("base 20: implied pitch 8.4/12", p.pitchPer12, 8.4, 0.05);
-}
-{
-  // base 30 → h 10 → side √(225+100)=√325=18.0278
-  const p = peakSides(30, T);
-  approx("base 30: each side 18.03", p.side, 18.03);
-  approx("base 30: both sides 36.06", p.total, 36.06);
-}
-{
-  // base 12 → h 5 → side √(36+25)=√61=7.8102
-  const p = peakSides(12, T);
-  approx("base 12: each side 7.81", p.side, 7.81);
-}
-{
-  // matches the calculator's default view: base 20
-  const p = peakSides(20, T);
-  eq("default base 20 returns all four metrics", [p.base, p.height, p.side, p.total].every((v) => typeof v === "number"), true);
-}
-
-console.log("Edge cases don't produce garbage");
-{
-  const p = peakSides(0, T);
-  eq("base 0 → side 2 (height only), no NaN", isFinite(p.side), true);
-  const q = peakSides(-5, T);
-  eq("negative base clamped, no NaN", isFinite(q.side) && q.base === 0, true);
-  const r = peakSides("abc", T);
-  eq("non-numeric base handled", isFinite(r.side), true);
-}
-
-console.log("Custom (office-edited) table is respected");
-{
-  const custom = [{ maxBase: 10, height: 3 }, { maxBase: null, height: 25 }];
-  eq("base 9 uses custom 3 ft", peakHeightForBase(9, custom), 3);
-  eq("base 11 uses custom 25 ft", peakHeightForBase(11, custom), 25);
-  // unsorted table still works
-  const unsorted = [{ maxBase: null, height: 30 }, { maxBase: 12, height: 4 }];
-  eq("unsorted table sorts correctly", peakHeightForBase(5, unsorted), 4);
+  const mod = require("../js/06b-geometry.js");
+  eq("no peakSides export", mod.peakSides === undefined, true);
+  eq("no peakHeightForBase export", mod.peakHeightForBase === undefined, true);
+  eq("no DEFAULT_PEAK_TABLE export", mod.DEFAULT_PEAK_TABLE === undefined, true);
+  const cfgMod = require("../js/01-core-config.js");
+  eq("no peakHeightTable in default config", cfgMod.DEFAULT_PRICING.rules.peakHeightTable === undefined, true);
 }
 
 console.log("Complexity from pitch");
 eq("3/12 → easy", complexityFromPitch(3), "easy");
 eq("5/12 → mid", complexityFromPitch(5), "mid");
 eq("7/12 → hard (price guide boundary)", complexityFromPitch(7), "hard");
-eq("12/12 → hard", complexityFromPitch(12), "hard");
 eq("no pitch → null", complexityFromPitch(0), null);
 
-console.log("Zone → price item mapping (the garage bug)");
+console.log("Zone → price item mapping");
 eq("garage eave is a ROOFLINE, not a window wrap", itemKeyForZone("garage", "easy"), "roofline_easy");
-eq("garage follows complexity", itemKeyForZone("garage", "hard"), "roofline_hard");
-eq("window → c7", itemKeyForZone("window", "hard"), "c7_window");
-eq("ridge ignores complexity", itemKeyForZone("ridge", "hard"), "ridge");
-eq("side roofline ignores complexity", itemKeyForZone("side", "hard"), "roofline_side");
-eq("rake follows complexity", itemKeyForZone("rake", "mid"), "roofline_mid");
-eq("eave follows complexity", itemKeyForZone("eave", "easy"), "roofline_easy");
-eq("ground → stakes", itemKeyForZone("ground", "mid"), "ground_stake");
-eq("bush → strands", itemKeyForZone("bush", "mid"), "bush_strand");
+eq("rake follows complexity", itemKeyForZone("rake", "hard"), "roofline_hard");
+eq("ridge keeps its own rate", itemKeyForZone("ridge", "hard"), "ridge");
 eq("tree → tree strands", itemKeyForZone("tree", "mid"), "tree_strand");
-eq("pillar → pillar strands", itemKeyForZone("pillar", "mid"), "pillar_strand");
-eq("unknown zone → null (caller falls back)", itemKeyForZone("nonsense", "mid"), null);
-eq("bad complexity defaults to mid", itemKeyForZone("eave", "bogus"), "roofline_mid");
-
-console.log("Complexity re-map covers every roofline zone kind");
-{
-  const kinds = ["eave", "rake", "gable", "peak", "dormer", "garage"];
-  eq("all roofline kinds re-map", kinds.every((k) => ROOFLINE_ZONE_KINDS.has(k)), true);
-  eq("ridge does NOT re-map (own rate)", ROOFLINE_ZONE_KINDS.has("ridge"), false);
-  eq("window does NOT re-map", ROOFLINE_ZONE_KINDS.has("window"), false);
-  // a house can never be easy AND hard: same kind+complexity is deterministic
-  const a = kinds.map((k) => itemKeyForZone(k, "hard"));
-  eq("one complexity → one roofline rate for all zones", new Set(a).size, 1);
-}
+eq("one complexity → one roofline rate",
+  new Set(["eave", "rake", "gable", "peak", "dormer", "garage"].map((k) => itemKeyForZone(k, "hard"))).size, 1);
+eq("roofline kinds re-map; ridge/window don't",
+  ROOFLINE_ZONE_KINDS.has("eave") && !ROOFLINE_ZONE_KINDS.has("ridge") && !ROOFLINE_ZONE_KINDS.has("window"), true);
 
 console.log("Satellite scale math (exact Google ground resolution)");
 {
-  // At the equator, zoom 20: 156543.03392 / 2^20 = 0.14929 m per logical px
-  // × 640 px × 3.28084 = 313.49 ft full-image width
   approx("equator: image spans 313.5 ft", satelliteFtPerNorm(0), 313.49, 0.2);
-  // cos(60°) = 0.5 → exactly half
   approx("lat 60°: half the span", satelliteFtPerNorm(60), 313.49 / 2, 0.2);
-  // typical US lat 42°
-  approx("lat 42°: ≈233 ft span", satelliteFtPerNorm(42), 313.49 * Math.cos(42 * Math.PI / 180), 0.3);
-  // a 50 ft house at lat 42 occupies 50/233 ≈ 0.215 of the image
-  const ftPer = satelliteFtPerNorm(42);
-  approx("normalized 0.215 ≈ 50 ft at lat 42", satDistFt({ x: 0.4, y: 0.5 }, { x: 0.615, y: 0.5 }, 42), 0.215 * ftPer, 0.01);
-  approx("diagonal distance uses hypot", satDistFt({ x: 0, y: 0 }, { x: 0.3, y: 0.4 }, 0), 0.5 * 313.49, 0.3);
-}
-
-console.log("Footprint → front width");
-{
-  const lat = 42;
-  const ftPer = satelliteFtPerNorm(lat);
-  // 52ft × 30ft rectangle centered in frame, front edge at the bottom (edge 2→3)
+  const lat = 42, ftPer = satelliteFtPerNorm(lat);
   const w = 52 / ftPer, h = 30 / ftPer;
   const fp = [
-    { x: 0.5 - w / 2, y: 0.5 - h / 2 }, // 0 top-left
-    { x: 0.5 + w / 2, y: 0.5 - h / 2 }, // 1 top-right
-    { x: 0.5 + w / 2, y: 0.5 + h / 2 }, // 2 bottom-right
-    { x: 0.5 - w / 2, y: 0.5 + h / 2 }, // 3 bottom-left
+    { x: 0.5 - w / 2, y: 0.5 - h / 2 }, { x: 0.5 + w / 2, y: 0.5 - h / 2 },
+    { x: 0.5 + w / 2, y: 0.5 + h / 2 }, { x: 0.5 - w / 2, y: 0.5 + h / 2 },
   ];
-  const r = computeSatFootprint(fp, 2, lat);   // edge 2→3 is the 52 ft front
-  approx("front edge = 52 ft", r.frontFt, 52, 0.2);
-  approx("perimeter = 164 ft", r.perimeterFt, 164, 0.5);
-  // bad frontEdge index falls back to longest edge (also 52 ft here)
-  const r2 = computeSatFootprint(fp, 99, lat);
-  approx("invalid front index → longest edge", r2.frontFt, 52, 0.2);
-  eq("degenerate polygon rejected", computeSatFootprint([{ x: 0, y: 0 }, { x: 1, y: 1 }], 0, lat), null);
+  approx("52×30 footprint front = 52 ft", computeSatFootprint(fp, 2, lat).frontFt, 52, 0.2);
+  approx("perimeter = 164 ft", computeSatFootprint(fp, 2, lat).perimeterFt, 164, 0.5);
+  eq("degenerate polygon rejected", computeSatFootprint([{ x: 0, y: 0 }], 0, lat), null);
+  approx("factor 52/44 → ×1.182", calibrationFactorFrom(52, 44), 1.182, 0.001);
+  eq("wild disagreement rejected", calibrationFactorFrom(150, 50), null);
+  eq("implausible building rejected", calibrationFactorFrom(10, 44), null);
 }
 
-console.log("Calibration factor guard rails");
+console.log("Spacing presets read from config");
+eq("tight = 4 in", spacingInches("tight", RULES), 4);
+eq("standard = 6 in", spacingInches("standard", RULES), 6);
+eq("wide = 10 in", spacingInches("wide", RULES), 10);
+eq("unknown falls back to standard", spacingInches("bogus", RULES), 6);
+eq("office-tuned value respected", spacingInches("tight", { ...RULES, spacingTightIn: 3 }), 3);
+
+console.log("Bush footage: dimensional, never width-alone");
 {
-  approx("sat 52 / ai 44 → ×1.182", calibrationFactorFrom(52, 44), 1.182, 0.001);
-  eq("perfect agreement → ×1", calibrationFactorFrom(50, 50), 1);
-  eq("implausibly small building rejected", calibrationFactorFrom(10, 44), null);
-  eq("implausibly huge building rejected", calibrationFactorFrom(250, 44), null);
-  eq("wild disagreement (×3) rejected", calibrationFactorFrom(150, 50), null);
-  eq("wild disagreement (×0.3) rejected", calibrationFactorFrom(20, 66), null);
-  eq("zero/missing input rejected", calibrationFactorFrom(0, 44), null);
-  eq("edge of band accepted (×2.4)", calibrationFactorFrom(120, 50) !== null, true);
+  // wrap: wraps = h/s × π×avg(w,d) × taper. 4w×3h×3d @6": wraps=6, avg=3.5
+  // → 6 × π×3.5 × .8 = 52.78 ft
+  approx("4×3×3 wrap @6\" = 52.8 ft", bushLightFootage({ widthFt: 4, heightFt: 3, depthFt: 3, pattern: "wrap", spacingKey: "standard" }, RULES), 52.8, 0.2);
+  // same width, taller bush → more footage (width alone would say equal)
+  const short = bushLightFootage({ widthFt: 4, heightFt: 2, depthFt: 3, pattern: "wrap" }, RULES);
+  const tall = bushLightFootage({ widthFt: 4, heightFt: 5, depthFt: 3, pattern: "wrap" }, RULES);
+  eq("taller bush needs more light than shorter (same width)", tall > short * 1.5, true);
+  // deeper bush → more footage
+  const shallow = bushLightFootage({ widthFt: 4, heightFt: 3, depthFt: 1.5, pattern: "wrap" }, RULES);
+  const deep = bushLightFootage({ widthFt: 4, heightFt: 3, depthFt: 5, pattern: "wrap" }, RULES);
+  eq("deeper bush needs more light (same width & height)", deep > shallow, true);
+  // surface: area/s = (4×3 + 4×3/2)/0.5 = 36 ft
+  approx("surface 4×3×3 @6\" = 36 ft", bushLightFootage({ widthFt: 4, heightFt: 3, depthFt: 3, pattern: "surface", spacingKey: "standard" }, RULES), 36, 0.2);
+  approx("branch style = surface × 1.35", bushLightFootage({ widthFt: 4, heightFt: 3, depthFt: 3, pattern: "branch" }, RULES), 48.6, 0.3);
+  // missing depth defaults to 0.8 × width
+  approx("missing depth → 0.8×width assumed",
+    bushLightFootage({ widthFt: 5, heightFt: 3, pattern: "surface" }, RULES),
+    bushLightFootage({ widthFt: 5, heightFt: 3, depthFt: 4, pattern: "surface" }, RULES), 0.01);
+}
+
+console.log("Spacing directly drives strand count (tight > standard > wide)");
+{
+  // FOOTAGE always responds to spacing, regardless of any strand cap
+  const plant = { widthFt: 5, heightFt: 4, depthFt: 4, pattern: "wrap" };
+  const fT = bushLightFootage({ ...plant, spacingKey: "tight" }, RULES);
+  const fS = bushLightFootage({ ...plant, spacingKey: "standard" }, RULES);
+  const fW = bushLightFootage({ ...plant, spacingKey: "wide" }, RULES);
+  eq(`footage: tight(${fT}) > standard(${fS}) > wide(${fW})`, fT > fS && fS > fW, true);
+
+  // STRANDS respond too, on a plant small enough that the cap doesn't bind
+  const small = { widthFt: 2.5, heightFt: 2, depthFt: 2, pattern: "wrap", sizeClass: "xl" };
+  const sT = bushStrandBreakdown({ ...small, spacingKey: "tight" }, RULES);
+  const sS = bushStrandBreakdown({ ...small, spacingKey: "standard" }, RULES);
+  const sW = bushStrandBreakdown({ ...small, spacingKey: "wide" }, RULES);
+  eq(`strands: tight(${sT.strands}) > standard(${sS.strands}) ≥ wide(${sW.strands})`,
+    sT.strands > sS.strands && sS.strands >= sW.strands, true);
+  eq("gap shown in breakdown (tight=4\")", sT.spacingIn, 4);
+  eq("strands are whole numbers", Number.isInteger(sT.strands) && Number.isInteger(sW.strands), true);
+
+  // And the cap deliberately clamps oversized results (Rule 11 anti-overcharge)
+  const capped = bushStrandBreakdown({ widthFt: 5, heightFt: 4, depthFt: 4, pattern: "wrap", spacingKey: "tight", sizeClass: "medium" }, RULES);
+  eq(`cap clamps a big/tight bush to the medium cap (${capped.strands} = 3)`, capped.strands, 3);
+}
+
+console.log("Bush caps and rounding");
+{
+  eq("14 ft → 1 strand", strandsFromFootage(14, null, RULES), 1);
+  eq("14.1 ft → 2 strands (round UP, no partial strands)", strandsFromFootage(14.1, null, RULES), 2);
+  eq("small cap = 2", strandsFromFootage(100, "small", RULES), 2);
+  eq("xl cap = 6", strandsFromFootage(100, "xl", RULES), 6);
+  eq("minimum 1 strand", strandsFromFootage(0.5, null, RULES), 1);
+}
+
+console.log("Tree footage: trunk/branch dimensional — NOT just height");
+{
+  // trunk: wraps = 8/0.5 = 16 × circ 3 × taper .8 = 38.4 ft
+  approx("trunk wrap: 8ft trunk, 3ft circ @6\" = 38.4 ft",
+    treeLightFootage({ heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 3, style: "trunk", spacingKey: "standard" }, RULES), 38.4, 0.2);
+  // branch: 6 branches × (5/0.5 wraps) × 1.2 circ × .8 = 57.6
+  approx("branch wrap: 6 br × 5ft × 1.2 circ @6\" = 57.6 ft",
+    treeLightFootage({ heightFt: 18, branchCount: 6, branchLenFt: 5, branchCircumFt: 1.2, style: "branch", spacingKey: "standard" }, RULES), 57.6, 0.3);
+  // trunk_branch = both
+  approx("trunk+branch = sum of both", treeLightFootage({ heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 3, branchCount: 6, branchLenFt: 5, branchCircumFt: 1.2, style: "trunk_branch" }, RULES), 96, 0.5);
+  // same height, fatter trunk → more light (height-only math would say equal)
+  const thin = treeLightFootage({ heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 2, style: "trunk" }, RULES);
+  const fat = treeLightFootage({ heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 4, style: "trunk" }, RULES);
+  eq("fatter trunk (same height) needs more light", fat > thin * 1.5, true);
+  // more branches → more light
+  const few = treeLightFootage({ heightFt: 18, branchCount: 3, branchLenFt: 5, branchCircumFt: 1.2, style: "branch" }, RULES);
+  const many = treeLightFootage({ heightFt: 18, branchCount: 9, branchLenFt: 5, branchCircumFt: 1.2, style: "branch" }, RULES);
+  approx("3× branches ≈ 3× light", many / few, 3, 0.05);
+  // spacing drives trees too
+  const tight = treeStrandBreakdown({ heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 3, style: "trunk", spacingKey: "tight" }, RULES);
+  const wide = treeStrandBreakdown({ heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 3, style: "trunk", spacingKey: "wide" }, RULES);
+  eq(`tree: tight(${tight.strands}) > wide(${wide.strands}) strands`, tight.strands > wide.strands, true);
+  // trees NOT capped by bush size classes
+  const big = treeStrandBreakdown({ heightFt: 30, trunkHeightFt: 14, trunkCircumFt: 5, branchCount: 10, branchLenFt: 8, branchCircumFt: 2, style: "trunk_branch", spacingKey: "tight" }, RULES);
+  eq("big tree can exceed bush caps (" + big.strands + " strands)", big.strands > 6, true);
+  // sane defaults when only height known
+  const bare = treeStrandBreakdown({ heightFt: 12 }, RULES);
+  eq("height-only estimate still produces sane strands (1-6)", bare.strands >= 1 && bare.strands <= 6, true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

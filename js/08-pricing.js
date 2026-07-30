@@ -8,29 +8,11 @@
  * ========================================================================= */
 "use strict";
 
-/* Strand math per Rule 11:
- * wraps = wrapped height ÷ spacing; length = wraps × circumference × 0.8 taper;
- * strands = length ÷ strandCoverageFt (14), round UP; capped by size class. */
-function strandsForPlant({ heightFt = 3, widthFt = 3, sizeClass = "medium", spacingIn = 6 }, rules) {
-  const spacingFt = spacingIn / 12;
-  const wraps = Math.max(1, heightFt / spacingFt);
-  const circumference = Math.PI * widthFt;
-  const lengthFt = wraps * circumference * (rules.wrapSpacing?.taperFactor ?? 0.8);
-  let strands = Math.ceil(lengthFt / (rules.strandCoverageFt || 14));
-  const caps = rules.bushStrandCaps || { small: 2, medium: 3, large: 5, xl: 6 };
-  const cap = caps[sizeClass] ?? caps.medium;
-  return Math.max(1, Math.min(strands, cap));
-}
-
-/* Simple wrap-footage → strands for rows the AI already estimated in lf */
-function strandsFromFootage(lengthFt, sizeClass, rules) {
-  let strands = Math.ceil(lengthFt / (rules.strandCoverageFt || 14));
-  if (sizeClass) {
-    const caps = rules.bushStrandCaps || {};
-    const cap = caps[sizeClass];
-    if (cap) strands = Math.min(strands, cap);
-  }
-  return Math.max(1, strands);
+/* Strand math lives in 06b-geometry.js (dimensional, spacing-driven).
+ * In the browser those functions are globals; in node tests we require them. */
+/* eslint-disable no-redeclare */
+if (typeof module !== "undefined" && typeof bushStrandBreakdown === "undefined") {
+  var { bushStrandBreakdown, treeStrandBreakdown, strandsFromFootage } = require("./06b-geometry.js");
 }
 
 /**
@@ -49,14 +31,15 @@ function computeQuote(measurements, marks, options, config) {
   const addLine = (key, qty, label, detail) => {
     const it = items[key];
     if (!it) { errors.push(`Unknown price item "${key}"`); return; }
+    const materialCost = it.cost != null ? Math.round(qty * it.cost * 100) / 100 : null;
     if (it.rate === null || it.rate === undefined) {
       errors.push(`"${it.label}" has no price — set it in the Pricing Guide before finalizing.`);
-      lineItems.push({ key, label: label || it.label, qty, unit: it.unit, rate: null, total: null, detail });
+      lineItems.push({ key, label: label || it.label, qty, unit: it.unit, rate: null, total: null, detail, materialCost });
       return;
     }
     lineItems.push({
       key, label: label || it.label, qty, unit: it.unit,
-      rate: it.rate, total: Math.round(qty * it.rate * 100) / 100, detail,
+      rate: it.rate, total: Math.round(qty * it.rate * 100) / 100, detail, materialCost,
     });
   };
 
@@ -69,14 +52,32 @@ function computeQuote(measurements, marks, options, config) {
     if (it.unit === "lf") {
       addLine(m.itemKey, m.value, `${it.label} — ${m.zoneLabel}`, `${m.value} lf`);
     } else if (it.unit === "strand") {
-      // Convert measured footage → WHOLE strands, always up (Rule 16).
-      // Garland sells as 9 ft strands; wraps as 14 ft coverage strands.
-      const isGarland = m.itemKey === "garland_strand";
-      const strandFt = isGarland ? (rules.garlandStrandFt || 9) : (rules.strandCoverageFt || 14);
-      const strands = m.manualStrands ??
-        (isGarland ? Math.max(1, Math.ceil(m.value / strandFt)) : strandsFromFootage(m.value, m.sizeClass, rules));
-      assumptions.push(`${m.zoneLabel}: ${m.value} ft → ${strands} × ${strandFt} ft strand${strands > 1 ? "s" : ""}${m.sizeClass ? ` (${m.sizeClass}, capped)` : ""}`);
-      addLine(m.itemKey, strands, `${it.label} — ${m.zoneLabel}`, `${strands} strand${strands > 1 ? "s" : ""}`);
+      // WHOLE strands, always rounded up (Rule 16). The selected spacing/gap
+      // directly drives the count and is shown so the number is explainable.
+      let strands, detail;
+      if (m.manualStrands) {
+        strands = m.manualStrands;
+        detail = `${strands} strand${strands > 1 ? "s" : ""} (manual override)`;
+        assumptions.push(`${m.zoneLabel}: strand count set manually (${strands})`);
+      } else if (m.plant) {
+        const bd = bushStrandBreakdown(m.plant, rules);
+        strands = bd.strands;
+        detail = `${strands} strand${strands > 1 ? "s" : ""} · ${bd.footage} ft light · ${bd.pattern} @ ${bd.spacingIn}" gap`;
+        assumptions.push(`${m.zoneLabel}: ${m.plant.widthFt}×${m.plant.heightFt}×${m.plant.depthFt} ft ${bd.pattern} @ ${bd.spacingIn}" gap → ${bd.footage} ft → ${strands} strands (${m.plant.sizeClass || "medium"} cap)`);
+      } else if (m.tree) {
+        const td = treeStrandBreakdown(m.tree, rules);
+        strands = td.strands;
+        detail = `${strands} strand${strands > 1 ? "s" : ""} · ${td.footage} ft light · ${td.style} @ ${td.spacingIn}" gap`;
+        assumptions.push(`${m.zoneLabel}: ${td.style} wrap @ ${td.spacingIn}" gap → ${td.footage} ft → ${strands} strands`);
+      } else {
+        // legacy/manual footage rows: garland at 9 ft strands, wraps at 14 ft
+        const isGarland = m.itemKey === "garland_strand";
+        const strandFt = isGarland ? (rules.garlandStrandFt || 9) : (rules.strandCoverageFt || 14);
+        strands = isGarland ? Math.max(1, Math.ceil(m.value / strandFt)) : strandsFromFootage(m.value, m.sizeClass, rules);
+        detail = `${strands} strand${strands > 1 ? "s" : ""}`;
+        assumptions.push(`${m.zoneLabel}: ${m.value} ft → ${strands} × ${strandFt} ft strand${strands > 1 ? "s" : ""}${m.sizeClass ? ` (${m.sizeClass}, capped)` : ""}`);
+      }
+      addLine(m.itemKey, strands, `${it.label} — ${m.zoneLabel}`, detail);
     } else {
       addLine(m.itemKey, 1, `${it.label} — ${m.zoneLabel}`);
     }
@@ -174,5 +175,5 @@ const NODE_ADDONS = [
 ];
 
 if (typeof module !== "undefined") {
-  module.exports = { computeQuote, strandsForPlant, strandsFromFootage };
+  module.exports = { computeQuote };
 }

@@ -108,7 +108,60 @@ Export/Import to back up a season's rates.
 
 Seeded from `2026 Christmas Lights Price Guide.xlsx` (July 2026).
 
-## Roof complexity & the peak calculator
+## How measurements are produced (accuracy chain)
+
+Four layers, in order — each one narrows the error:
+
+1. **Dual-source analysis.** The AI receives the front photo, the markup, and
+   the satellite image together. It measures only marked sections, matching
+   each one between the two views, and tags every row with the source it
+   used (`photo`, `satellite`, or `both`).
+2. **Satellite scale calibration.** Google satellite tiles have an exact
+   feet-per-pixel at any latitude, so the building's front width is computed
+   with pure geometry — no guessing — and every AI measurement is rescaled to
+   match. Guard rails reject implausible traces rather than applying them.
+3. **Dimensional strand math.** Bushes and trees are never priced from width
+   or height alone (see below).
+4. **Human review.** Nothing is priced until you've seen it. The AI estimate
+   and the final value are both kept and both visible.
+
+Safeguards: duplicate sections are dropped, unselected marks are never
+measured, garage rooflines price as rooflines, low-confidence rows stay
+flagged (calibration corrects *scale*, so it can't clear an occlusion
+warning), and rows you've edited are never silently rescaled afterward.
+
+## Bush, shrub & tree strand math
+
+Strand counts come from real dimensions and the selected gap — a tighter wrap
+costs more, a wider gap costs less, and every number is explained in the
+price sheet.
+
+**Bushes/shrubs** use width × height × depth with a lighting pattern:
+
+| Pattern | Footage |
+|---|---|
+| Wrap around | `(height ÷ gap) × π × avg(width, depth) × taper` |
+| Surface coverage | `(front area + half top area) ÷ gap` |
+| Branch style | surface × 1.35 |
+
+**Trees** use trunk and branch dimensions, never height alone:
+
+| Style | Footage |
+|---|---|
+| Trunk wrap | `(trunk height ÷ gap) × trunk circumference` |
+| Branch wrap | `branches × (branch length ÷ gap) × branch circumference` |
+| Trunk + branches | both |
+| Canopy / net | `π × (canopy width ÷ 2)² ÷ gap` |
+
+Footage ÷ strand coverage (14 ft, configurable) → **always rounded up** to
+whole strands. Bushes are capped by size class to stop photo geometry
+overcharging ordinary shrubs; trees are not capped. Gap presets (tight 4",
+standard 6", wide 10") are editable in the Pricing Guide.
+
+Every plant and tree row has a ⚙ editor for dimensions, pattern/style, gap,
+and a direct strand override — and the override always wins.
+
+## Roof complexity
 
 **Roof complexity is one setting per property**, not per zone — a house can't
 be Easy and Hard at the same time. The AI estimates the roof pitch, classifies
@@ -117,37 +170,24 @@ guide), and shows its reasoning. Changing the setting in the Measurements
 section instantly re-prices every roofline zone. Ridge and side rooflines keep
 their own rates and are unaffected.
 
-**The peak calculator** solves the least reliable measurement in the tool.
-Diagonal rake lengths read short in a photo because of foreshortening; a
-gable's *horizontal base* does not. So the AI reports the base width and the
-tool derives both rake edges:
-
-```
-height = company peak table (base width → height)
-side   = √((base ÷ 2)² + height²)
-```
-
-Peak-derived rows are tagged **peak calc** in the measurements table, and you
-edit the *base width* — the rake length re-derives automatically, including
-after calibration. There's also a standalone calculator in the Measurements
-section for gables you want to add by hand.
-
-The height table is the office's rule of thumb and is **editable in the
-Pricing Guide** (with the implied pitch shown for each row), so it's never
-hard-coded.
+> The former peak calculator (gable base width → derived rake length) has been
+> removed at the office's request. Rake and gable edges are now measured as
+> they appear and cross-checked against the satellite footprint.
 
 ## Tests
 
 ```
-node tests/pricing.test.js     # 24 assertions
-node tests/geometry.test.js    # 46 assertions
+node tests/pricing.test.js     # 35 assertions
+node tests/geometry.test.js    # 51 assertions
 ```
 
-Pricing: strand math, garland rounding, job minimum, pillar wraps,
-blank-price refusal, upcharges, additive migration.
-Geometry: peak table lookup and side lengths verified against the office
-calculator, edge cases, custom tables, complexity classification, and the
-zone→price mapping (including the garage-eave case).
+Pricing: dimensional strand math, spacing effect on price, manual overrides,
+garland rounding, job minimum, pillar wraps, blank-price refusal, upcharges,
+material cost, additive migration.
+Geometry: satellite scale math, footprint→front width, calibration guard
+rails, complexity classification, zone→price mapping (including the
+garage-eave case), and bush/tree footage responding to every dimension and
+gap setting.
 
 ## Architecture
 

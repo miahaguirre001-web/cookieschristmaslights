@@ -1,7 +1,8 @@
 /* Pricing engine tests — run: node tests/pricing.test.js */
 "use strict";
 const { DEFAULT_PRICING } = require("../js/01-core-config.js");
-const { computeQuote, strandsForPlant, strandsFromFootage } = require("../js/08-pricing.js");
+const { computeQuote } = require("../js/08-pricing.js");
+const { strandsFromFootage, bushStrandBreakdown, treeStrandBreakdown } = require("../js/06b-geometry.js");
 
 let passed = 0, failed = 0;
 function eq(name, actual, expected) {
@@ -44,16 +45,58 @@ console.log("Garland rounds UP to whole 9 ft strands (Rule 16)");
   approx("3 × $90 = $270 line total", li.total, 270);
 }
 
-console.log("Strand math (Rule 11)");
+console.log("Strand math (Rule 11) — dimensional, spacing-driven");
 {
   // 14 ft coverage — not 10 (the 30% overcharge bug)
   eq("strandsFromFootage 14 ft = 1 strand", strandsFromFootage(14, null, cfg.rules), 1);
   eq("strandsFromFootage 15 ft = 2 strands", strandsFromFootage(15, null, cfg.rules), 2);
   eq("small bush cap = 2", strandsFromFootage(100, "small", cfg.rules), 2);
   eq("xl bush cap = 6", strandsFromFootage(100, "xl", cfg.rules), 6);
-  // plant formula: 4ft tall, 3ft wide small tree, 6" swirl
-  const s = strandsForPlant({ heightFt: 4, widthFt: 3, sizeClass: "medium", spacingIn: 6 }, cfg.rules);
-  eq("4ft plant lands within medium cap", s <= 3 && s >= 1, true);
+  const bd = bushStrandBreakdown({ widthFt: 4, heightFt: 3, depthFt: 3, pattern: "wrap", spacingKey: "standard", sizeClass: "medium" }, cfg.rules);
+  eq("4x3x3 bush lands within medium cap", bd.strands >= 1 && bd.strands <= 3, true);
+}
+
+console.log("Plant/tree rows price from dimensions, and spacing shows in the detail");
+{
+  const plantRow = { zoneLabel: "bush left of front door", itemKey: "bush_strand", value: 52.8,
+    source: "AI Estimated", confidence: 0.7,
+    plant: { widthFt: 4, heightFt: 3, depthFt: 3, pattern: "wrap", spacingKey: "standard", sizeClass: "large" } };
+  const q = computeQuote([plantRow], [], opts, cfg);
+  const li = q.lineItems[0];
+  eq("bush billed in whole strands", Number.isInteger(li.qty) && li.qty >= 1, true);
+  eq("line detail names the gap", /gap/.test(li.detail), true);
+  eq("assumption explains dimensions -> strands", q.assumptions.some(a => /ft wrap @ 6" gap/.test(a)), true);
+  eq("label uses the descriptive area name", /bush left of front door/.test(li.label), true);
+
+  // tighter gap must cost more
+  const tightRow = { ...plantRow, plant: { ...plantRow.plant, spacingKey: "tight" } };
+  const qT = computeQuote([tightRow], [], opts, cfg);
+  eq("tight gap >= standard gap price", qT.lineItems[0].qty >= li.qty, true);
+
+  const treeRow = { zoneLabel: "maple right of driveway", itemKey: "tree_strand", value: 96,
+    source: "AI Estimated", confidence: 0.6,
+    tree: { heightFt: 18, trunkHeightFt: 8, trunkCircumFt: 3, branchCount: 6, branchLenFt: 5, branchCircumFt: 1.2, style: "trunk_branch", spacingKey: "standard" } };
+  const qTree = computeQuote([treeRow], [], opts, cfg);
+  eq("tree priced from trunk+branch footage (7 strands)", qTree.lineItems[0].qty, 7);
+  eq("tree detail names the style", /trunk_branch/.test(qTree.lineItems[0].detail), true);
+}
+
+console.log("Manual override always wins and is disclosed");
+{
+  const row = { zoneLabel: "front center bush", itemKey: "bush_strand", value: 52.8, manualStrands: 9,
+    source: "User Entered", confidence: 1,
+    plant: { widthFt: 4, heightFt: 3, depthFt: 3, pattern: "wrap", spacingKey: "standard", sizeClass: "small" } };
+  const q = computeQuote([row], [], opts, cfg);
+  eq("override beats the cap and the formula", q.lineItems[0].qty, 9);
+  eq("assumptions disclose the override", q.assumptions.some(a => /set manually/.test(a)), true);
+}
+
+console.log("Material cost surfaces when configured");
+{
+  const q = computeQuote([{ zoneLabel: "bush a", itemKey: "bush_strand", value: 20, source: "User Entered", confidence: 1 }], [], opts, cfg);
+  eq("bush_strand has cost 13 -> materialCost present", q.lineItems[0].materialCost > 0, true);
+  const q2 = computeQuote([{ zoneLabel: "eave", itemKey: "roofline_easy", value: 50, source: "User Entered", confidence: 1 }], [], opts, cfg);
+  eq("items without a cost report null", q2.lineItems[0].materialCost, null);
 }
 
 console.log("Pillar wraps: 2 strands × $50 = $100 each");

@@ -15,14 +15,22 @@ function route() {
   document.querySelectorAll(".nav-link").forEach((a) => a.classList.toggle("sel", a.getAttribute("href") === hash));
   const view = document.querySelector(hash.replace("#", "#view-"));
   if (view) view.style.display = "";
-  if (hash === "#dashboard") renderDashboard();
+  if (hash === "#dashboard") renderDashboard().catch(console.error);
   if (hash === "#pricing") renderPricingGuide();
   if (hash === "#settings") renderSettings();
 }
 
 async function renderDashboard() {
   const host = document.getElementById("dash-list");
-  const all = (await dbAll()).sort((a, b) => b.updatedAt - a.updatedAt);
+  let all;
+  try {
+    all = (await dbAll()).sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch (e) {
+    // Storage can fail (private browsing, disk quota). Say so rather than
+    // rendering an empty page that looks like "you have no estimates".
+    host.innerHTML = `<div class="warn-banner">Couldn't read saved estimates from this browser's storage${e && e.message ? ` (${esc(e.message)})` : ""}. Private/incognito mode blocks storage — try a normal window.</div>`;
+    return;
+  }
   if (!all.length) {
     host.innerHTML = `<p class="hint">No saved properties yet. Start an estimate — it saves automatically under its address.</p>`;
     return;

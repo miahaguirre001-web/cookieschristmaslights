@@ -39,27 +39,39 @@ ROOF COMPLEXITY — classify the PROPERTY ONCE (not per zone). Judge the dominan
 - "easy": flat roof or very shallow pitch (under ~4/12). Walkable, no steep faces.
 - "mid": moderate pitch, roughly 4/12 to 6/12. The typical suburban roof.
 - "hard": steep, 7/12 or greater; and/or complex cut-up roof with multiple valleys, dormers, or steep gables requiring extra rigging.
-Also estimate "roofPitchPer12" (inches of rise per 12 inches of run) for the main roof faces, and give a one-line "complexityReason" citing what you SEE (e.g. "gable rises ~10 ft over a 12 ft half-span ≈ 10/12").
+Also estimate "roofPitchPer12" and give a one-line "complexityReason" citing what you SEE.
 
-GABLE / RAKE ZONES — DO NOT estimate the diagonal length directly. Foreshortening makes diagonals unreliable in a photo. Instead, for any mark that runs along a gable rake, peak, or dormer slope, report "baseWidthFt": the HORIZONTAL width of that gable at its base (the span the triangle sits on). We derive the rake length from it with the company's peak table. If the mark covers BOTH rakes of one gable, set "coversBothRakes": true.
+DUAL-SOURCE MEASUREMENT — you may receive a SATELLITE image after the street photo. Use BOTH:
+1. From the satellite, read the building's real footprint dimensions (the front facade width especially).
+2. From the street photo, identify which visible roof sections the marks select.
+3. Match each marked section to its satellite counterpart; derive lengths from the satellite scale where possible, anchors otherwise.
+4. Measure ONLY marked sections. Never count a section twice, never include rear-facing or hidden roof, never add unmarked dormers/ridges/windows/plants.
+5. Set "source" on each row: "satellite" (footprint-derived), "photo" (anchor-derived), or "both" (cross-checked).
+6. If the two sources disagree by more than ~20% on a length, still report your best value but add a warning naming the zone.
+Rake/gable slopes: measure the visible diagonal edge itself, correcting for foreshortening using the satellite footprint of that gable where available.
 
 Return ONLY compact JSON, no prose:
 {
  "houseFrontWidthFt": 52.0,
  "measurements": [
-   {"markId":"mark_01","zoneKind":"eave|rake|ridge|side|dormer|garage|window|icicle|ground|bush|shrub|tree|pillar|garland","zoneLabel":"front eave","lengthFt":46.0,"baseWidthFt":null,"coversBothRakes":false,"confidence":0.82,"basis":"≈5.1 door-heights wide; cross-checked against garage door"}
+   {"markId":"mark_01","zoneKind":"eave|rake|ridge|side|dormer|garage|window|icicle|ground|bush|shrub|tree|pillar|garland","zoneLabel":"front left eave","lengthFt":46.0,"source":"both","confidence":0.82,"basis":"satellite front 52ft; photo anchors agree"},
+   {"markId":"mark_05","zoneKind":"bush","zoneLabel":"bush left of front door","lengthFt":null,"source":"photo","confidence":0.6,"plant":{"widthFt":4,"heightFt":3,"depthFt":3,"shape":"rounded","density":"dense","sizeClass":"medium"}},
+   {"markId":"mark_06","zoneKind":"tree","zoneLabel":"maple right of driveway","lengthFt":null,"source":"photo","confidence":0.55,"tree":{"heightFt":18,"trunkHeightFt":8,"trunkCircumFt":3.1,"branchCount":6,"branchLenFt":5,"branchCircumFt":1.2,"canopyWidthFt":14}}
  ],
  "roofComplexity": "easy|mid|hard",
  "roofPitchPer12": 8,
- "complexityReason": "steep front gable, rise ~10 ft over 12 ft half-span",
+ "complexityReason": "steep front gable ≈8/12",
  "stories": 1,
  "installNotes": ["C9 bulbs along full front eave, ~46 ft"],
- "warnings": ["anything the estimator should verify"],
+ "warnings": ["left rake: photo and satellite disagree 25%"],
  "overallConfidence": 0.8
 }
-"houseFrontWidthFt" = your estimate of the FULL width of the street-facing facade of the main house, wall-to-wall including any attached garage (this is cross-checked against satellite data, so derive it carefully from the anchors).
-Rules for the fields: set "zoneKind" on EVERY row — it decides which price applies, so a garage eave must be "garage" (a roofline), never "window". For rake/gable/dormer-slope rows set baseWidthFt and leave lengthFt null. For every other row set lengthFt and leave baseWidthFt null. For bush/shrub AREA marks: estimate plant height and width in ft in "basis", add "sizeClass":"small|medium|large|xl", and set lengthFt to estimated wrap footage.
-SPEED IS CRITICAL: output single-line compact JSON with no whitespace. "basis" max 8 words, notes max 10 words, warnings max 2 items. Do not repeat or explain anything.`;
+"houseFrontWidthFt" = FULL width of the street-facing facade wall-to-wall including attached garage — derive it from the satellite footprint when provided.
+zoneKind decides pricing: a garage eave must be "garage" (a roofline), never "window".
+ZONE LABELS must describe LOCATION so a human can find them: "bush left of front door", "front left bush", "tree right of driveway" — NEVER "bush 1" or "tree 2".
+For bush/shrub rows fill the "plant" object (measure against door/window anchors; depth from satellite if visible). For tree rows fill the "tree" object. Leave lengthFt null for plants/trees — strand math is computed from dimensions, not by you.
+HONESTY: if the images don't show enough (occlusion, distance, shadows), set confidence below 0.5 and say why in "basis" — do not guess confidently.
+SPEED IS CRITICAL: single-line compact JSON, no whitespace. "basis" max 8 words, warnings max 3 items.`;
 }
 
 /* Concrete physical descriptions so the image model renders a real
@@ -102,18 +114,19 @@ async function runAnalysis(onStatus = () => {}) {
   if (!included.length) throw new Error("No marks to analyze — draw or auto-detect first.");
 
   // Send the ORIGINAL photo (full frame, no crop — Rule 10) + markup preview
+  // + the SATELLITE image when available (dual-source measurement).
   const markupImage = renderHumanMarkupSnapshot();
+  const content = [
+    { type: "text", text: "Image 1: original property photo. Image 2: same photo with estimator markup." + (project.satellite ? " Image 3: satellite/top-down view of the same property (use it for real dimensions)." : "") },
+    imageBlock(project.photo),
+    imageBlock(markupImage),
+  ];
+  if (project.satellite) content.push(imageBlock(project.satellite));
+  content.push({ type: "text", text: buildAnalysisPrompt() });
+
   const text = await callClaude({
     system: "You are a precise construction estimator. Respond with valid JSON only.",
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: "Image 1: original property photo. Image 2: same photo with estimator markup." },
-        imageBlock(project.photo),
-        imageBlock(markupImage),
-        { type: "text", text: buildAnalysisPrompt() },
-      ],
-    }],
+    messages: [{ role: "user", content }],
     maxTokens: 1500,   // latency throttle — see note in 02-api.js
   }, onStatus);
 
@@ -217,9 +230,6 @@ function renderHumanMarkupSnapshot() {
 }
 
 function applyAnalysis(parsed) {
-  const cfg = loadPricingConfig();
-  const table = cfg.rules.peakHeightTable;
-
   // One complexity for the whole property. Prefer an explicit pitch when the
   // model gave one, since that's checkable; fall back to its label.
   const fromPitch = complexityFromPitch(parsed.roofPitchPer12);
@@ -227,44 +237,69 @@ function applyAnalysis(parsed) {
     ? parsed.roofComplexity
     : (fromPitch || "mid");
 
+  const cfg = loadPricingConfig();
   const rows = [];
+  const seenMarks = new Set();
   for (const m of parsed.measurements || []) {
     if (!m.markId) continue;
+    // Safeguard: never count the same marked section twice
+    if (seenMarks.has(m.markId)) continue;
+    seenMarks.add(m.markId);
     const mark = project.marks.find((x) => x.id === m.markId);
-    if (mark && m.sizeClass) mark.sizeClass = m.sizeClass;
+    // Safeguard: never measure areas the estimator didn't select
+    if (mark && mark.included === false) continue;
 
     const zoneKind = m.zoneKind || inferZoneKind(mark);
-    let value = null, basis = m.basis || "", peak = null;
-
-    // Gable/rake: derive the diagonal from the base width (peak calculator)
-    if (typeof m.baseWidthFt === "number" && m.baseWidthFt > 0) {
-      peak = peakSides(m.baseWidthFt, table);
-      value = m.coversBothRakes ? peak.total : peak.side;
-      basis = `${m.baseWidthFt} ft base → peak ${peak.height} ft → ${m.coversBothRakes ? "both rakes" : "rake"} ${value} ft` +
-              (basis ? ` · ${basis}` : "");
-    } else if (typeof m.lengthFt === "number") {
-      value = m.lengthFt;
-    } else {
-      continue;   // nothing usable
-    }
-
+    const isPlant = zoneKind === "bush" || zoneKind === "shrub";
+    const isTree = zoneKind === "tree";
     const itemKey = itemKeyForZone(zoneKind, complexity) || defaultItemKey(mark);
-    rows.push({
+
+    const row = {
       id: "meas_" + m.markId,
       markId: m.markId,
       zoneKind,
       zoneLabel: m.zoneLabel || mark?.zoneLabel || "run",
       itemKey,
-      value: round1(value),
-      rawAiValue: round1(value),
-      baseWidthFt: peak ? round1(m.baseWidthFt) : null,
-      coversBothRakes: !!m.coversBothRakes,
       unit: "lf",
       source: "AI Estimated",
+      imageSource: ["photo", "satellite", "both"].includes(m.source) ? m.source : "photo",
       confidence: m.confidence ?? 0.5,
-      basis,
-      sizeClass: m.sizeClass || mark?.sizeClass || null,
-    });
+      basis: m.basis || "",
+    };
+
+    if (isPlant) {
+      const p = m.plant || {};
+      row.plant = {
+        widthFt: num(p.widthFt, 3), heightFt: num(p.heightFt, 3),
+        depthFt: num(p.depthFt, num(p.widthFt, 3) * 0.8),
+        shape: p.shape || "rounded", density: p.density || "medium",
+        sizeClass: p.sizeClass || mark?.sizeClass || "medium",
+        pattern: mark?.wrapStyle === "branch" ? "branch" : "wrap",
+        spacingKey: "standard",
+      };
+      const bd = bushStrandBreakdown(row.plant, cfg.rules);
+      row.value = bd.footage;               // display footage; strands derive live
+      row.rawAiValue = bd.footage;
+      if (mark) mark.sizeClass = row.plant.sizeClass;
+    } else if (isTree) {
+      const t = m.tree || {};
+      row.tree = {
+        heightFt: num(t.heightFt, 12), trunkHeightFt: num(t.trunkHeightFt, null),
+        trunkCircumFt: num(t.trunkCircumFt, null), branchCount: num(t.branchCount, null),
+        branchLenFt: num(t.branchLenFt, null), branchCircumFt: num(t.branchCircumFt, null),
+        canopyWidthFt: num(t.canopyWidthFt, null),
+        style: mark?.wrapStyle === "branch" ? "trunk_branch" : "trunk",
+        spacingKey: "standard",
+      };
+      const td = treeStrandBreakdown(row.tree, cfg.rules);
+      row.value = td.footage;
+      row.rawAiValue = td.footage;
+    } else {
+      if (typeof m.lengthFt !== "number") continue;   // nothing usable
+      row.value = round1(m.lengthFt);
+      row.rawAiValue = round1(m.lengthFt);
+    }
+    rows.push(row);
   }
   project.analysis = {
     roofComplexity: complexity,
@@ -340,3 +375,4 @@ function plausibilityCheck(rows) {
 }
 
 const round1 = (v) => Math.round(v * 10) / 10;
+const num = (v, fallback) => (typeof v === "number" && isFinite(v) && v > 0 ? v : fallback);

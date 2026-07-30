@@ -1,58 +1,12 @@
 /* =========================================================================
- * 06b-geometry.js — Roof geometry: the PEAK CALCULATOR and roof-complexity
- * classification.
+ * 06b-geometry.js — Roof complexity, satellite scale math, and the
+ * dimensional strand calculators for bushes/shrubs/trees.
  *
- * WHY THIS EXISTS: asking a vision model for a diagonal rake length off a
- * single photo is the least reliable thing we ask it (foreshortening makes
- * diagonals read short). Asking for a HORIZONTAL base width is much more
- * reliable — it sits in the same plane as the eave we already measure well.
- * So: AI estimates the gable's base width, and we DERIVE both rake lengths
- * from the company's peak table. Same math as the office's isosceles
- * calculator: side = √((base ÷ 2)² + height²).
- *
- * The height lookup is a company rule of thumb, so it lives in config and is
- * editable in the Pricing Guide (Rule 17) — never hard-coded here.
+ * NOTE: the former "peak calculator" (base width → derived rake length) has
+ * been REMOVED at the office's request. Rooflines are now measured as they
+ * appear, cross-checked against the satellite footprint.
  * ========================================================================= */
 "use strict";
-
-/* Company peak-height table. maxBase:null = "anything larger".
- * Seeded from the office's isosceles calculator. */
-const DEFAULT_PEAK_TABLE = [
-  { maxBase: 8,    height: 2 },
-  { maxBase: 15,   height: 5 },
-  { maxBase: 25,   height: 7 },
-  { maxBase: 35,   height: 10 },
-  { maxBase: 45,   height: 13 },
-  { maxBase: null, height: 17 },
-];
-
-/* Peak height for a given base width, per the table (step function — matches
- * the office calculator exactly; do not interpolate without asking them). */
-function peakHeightForBase(base, table) {
-  const t = (table && table.length ? table : DEFAULT_PEAK_TABLE)
-    .slice()
-    .sort((a, b) => (a.maxBase == null ? 1 : b.maxBase == null ? -1 : a.maxBase - b.maxBase));
-  for (const row of t) {
-    if (row.maxBase == null || base <= row.maxBase) return row.height;
-  }
-  return t[t.length - 1].height;
-}
-
-/* The calculator: base width → peak height, each rake side, both sides total. */
-function peakSides(base, table) {
-  const b = Math.max(0, Number(base) || 0);
-  const height = peakHeightForBase(b, table);
-  const side = Math.sqrt(Math.pow(b / 2, 2) + Math.pow(height, 2));
-  return {
-    base: r2(b),
-    height: r2(height),
-    side: r2(side),
-    total: r2(side * 2),
-    pitchPer12: b > 0 ? r2((height / (b / 2)) * 12) : 0,   // rise per 12" run
-  };
-}
-
-const r2 = (n) => Math.round(n * 100) / 100;
 
 /* ---- Roof complexity ----
  * ONE classification per property drives ALL roofline line items, so a house
@@ -65,7 +19,6 @@ const ROOF_COMPLEXITY = {
   hard: { key: "hard", label: "Hard", itemKey: "roofline_hard", desc: "Steep peaks — 7/12 slope or greater" },
 };
 
-/* Derive complexity from an estimated pitch when the AI gives us one. */
 function complexityFromPitch(pitchPer12) {
   if (!(pitchPer12 > 0)) return null;
   if (pitchPer12 >= 7) return "hard";
@@ -99,8 +52,6 @@ function itemKeyForZone(zoneKind, complexity) {
   }
 }
 
-/* Zone kinds that are roofline-priced and therefore re-map when the
- * estimator changes the property's complexity. */
 const ROOFLINE_ZONE_KINDS = new Set(["eave", "rake", "gable", "peak", "dormer", "garage"]);
 
 /* ---- Satellite scale math ----
@@ -108,25 +59,20 @@ const ROOFLINE_ZONE_KINDS = new Set(["eave", "rake", "gable", "peak", "dormer", 
  *   meters per logical pixel = 156543.03392 × cos(lat) / 2^zoom
  * Our satellite import is zoom 20, size 640 logical px (scale=2 doubles the
  * pixels but not the coverage). So a normalized 0–1 distance across the
- * image converts to real feet with NO AI involved — this is the same
- * principle roof-measurement services are built on. */
+ * image converts to real feet with NO AI involved. */
 const SAT_ZOOM = 20;
 const SAT_LOGICAL_PX = 640;
 const M_TO_FT = 3.28084;
 
 function satelliteFtPerNorm(lat, zoom = SAT_ZOOM, logicalPx = SAT_LOGICAL_PX) {
   const mPerPx = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
-  return logicalPx * mPerPx * M_TO_FT;   // feet spanned by the full image width
+  return logicalPx * mPerPx * M_TO_FT;
 }
 
-/* Distance in feet between two normalized points on the satellite image
- * (square image → same scale on both axes). */
 function satDistFt(p1, p2, lat) {
   return Math.hypot(p2.x - p1.x, p2.y - p1.y) * satelliteFtPerNorm(lat);
 }
 
-/* Given a footprint polygon + which edge faces the street, return real-world
- * sizes. Falls back to the longest edge when frontIdx is missing/invalid. */
 function computeSatFootprint(footprint, frontIdx, lat) {
   if (!Array.isArray(footprint) || footprint.length < 3) return null;
   const n = footprint.length;
@@ -135,9 +81,7 @@ function computeSatFootprint(footprint, frontIdx, lat) {
     edges.push({ i, ft: satDistFt(footprint[i], footprint[(i + 1) % n], lat) });
   }
   const perimeterFt = edges.reduce((s, e) => s + e.ft, 0);
-  let front = (Number.isInteger(frontIdx) && frontIdx >= 0 && frontIdx < n)
-    ? edges[frontIdx]
-    : null;
+  let front = (Number.isInteger(frontIdx) && frontIdx >= 0 && frontIdx < n) ? edges[frontIdx] : null;
   if (!front || front.ft < 8) {
     front = edges.reduce((a, b) => (b.ft > a.ft ? b : a));
   }
@@ -148,20 +92,143 @@ function computeSatFootprint(footprint, frontIdx, lat) {
   };
 }
 
-/* Guard rails for the auto-calibration factor: outside this band the
- * footprint read is more likely wrong than the analysis. */
 function calibrationFactorFrom(satFrontFt, aiFrontFt) {
   if (!(satFrontFt > 0) || !(aiFrontFt > 0)) return null;
-  if (satFrontFt < 15 || satFrontFt > 200) return null;   // implausible building
+  if (satFrontFt < 15 || satFrontFt > 200) return null;
   const factor = satFrontFt / aiFrontFt;
-  if (factor < 0.4 || factor > 2.5) return null;          // disagreement too wild
+  if (factor < 0.4 || factor > 2.5) return null;
   return Math.round(factor * 1000) / 1000;
+}
+
+/* =========================================================================
+ * PLANT & TREE STRAND MATH — dimensional, spacing-driven.
+ * The selected gap DIRECTLY drives strand count: tighter wrap = more lights.
+ * Strand coverage (default 14 ft) and caps come from config (Rule 11/16/17).
+ * ========================================================================= */
+
+/* Spacing presets (inches between wraps / light rows). Values come from
+ * config rules so the office can tune them. */
+const SPACING_KEYS = ["tight", "standard", "wide"];
+function spacingInches(spacingKey, rules) {
+  const map = {
+    tight: rules?.spacingTightIn ?? 4,
+    standard: rules?.spacingStandardIn ?? 6,
+    wide: rules?.spacingWideIn ?? 10,
+  };
+  return map[spacingKey] ?? map.standard;
+}
+
+const round1g = (v) => Math.round(v * 10) / 10;
+
+/**
+ * Bush/shrub footage from real dimensions — never from width alone.
+ * pattern:
+ *  "wrap"    — strands circle the plant: wraps = height/spacing,
+ *              each wrap ≈ ellipse circumference of (width, depth)
+ *  "surface" — light lines laid across the visible surface:
+ *              area ≈ front face (w×h) + half the top (w×d/2), length = area/spacing
+ *  "branch"  — woven through the plant, denser: surface × 1.35
+ * Missing depth defaults to 0.8 × width (typical trimmed shrub).
+ */
+function bushLightFootage({ widthFt, heightFt, depthFt, pattern = "wrap", spacingKey = "standard" }, rules) {
+  const w = Math.max(0.5, widthFt || 3);
+  const h = Math.max(0.5, heightFt || 3);
+  const d = Math.max(0.5, depthFt || w * 0.8);
+  const sFt = spacingInches(spacingKey, rules) / 12;
+  const taper = rules?.wrapSpacing?.taperFactor ?? 0.8;
+  let footage;
+  if (pattern === "wrap") {
+    // wraps = height ÷ spacing; each wrap ≈ ellipse circumference π×avg(w,d)
+    const wraps = Math.max(1, h / sFt);
+    footage = wraps * (Math.PI * ((w + d) / 2)) * taper;
+  } else {
+    const surfaceArea = w * h + (w * d) / 2;
+    footage = surfaceArea / sFt;
+    if (pattern === "branch") footage *= 1.35;
+  }
+  return round1g(footage);
+}
+
+/**
+ * Tree footage from trunk/branch dimensions — NEVER just tree height.
+ * style:
+ *  "trunk"        — wraps = trunkHeight/spacing, each wrap = trunk circumference
+ *  "branch"       — per branch: branchCircum × (branchLen/spacing)
+ *  "trunk_branch" — both
+ *  "canopy"/"net" — surface: π×(canopyW/2)² / spacing (projected canopy area)
+ * Missing values fall back to proportions of tree height so a bare estimate
+ * still prices sanely — flagged low confidence by the caller.
+ */
+function treeLightFootage(tree, rules) {
+  const heightFt = Math.max(2, tree.heightFt || 10);
+  const style = tree.style || "trunk";
+  const sFt = spacingInches(tree.spacingKey || "standard", rules) / 12;
+  const trunkH = tree.trunkHeightFt || heightFt * 0.45;
+  const trunkC = tree.trunkCircumFt || Math.max(1, heightFt / 8);
+  const branchN = tree.branchCount ?? Math.round(3 + heightFt / 6);
+  const branchL = tree.branchLenFt || heightFt * 0.3;
+  const branchC = tree.branchCircumFt || Math.max(0.5, trunkC * 0.35);
+
+  let footage = 0;
+  if (style === "trunk" || style === "trunk_branch" || style === "spiral") {
+    const wraps = Math.max(1, trunkH / sFt);
+    footage += wraps * trunkC;
+  }
+  if (style === "branch" || style === "trunk_branch") {
+    const perBranchWraps = Math.max(1, branchL / sFt);
+    footage += branchN * perBranchWraps * branchC;
+  }
+  if (style === "canopy" || style === "net") {
+    const canopyW = tree.canopyWidthFt || heightFt * 0.6;
+    footage += (Math.PI * Math.pow(canopyW / 2, 2)) / sFt;
+  }
+  if (footage === 0) { // unknown style — treat as trunk wrap
+    footage = Math.max(1, trunkH / sFt) * trunkC;
+  }
+  const taper = rules?.wrapSpacing?.taperFactor ?? 0.8;
+  return round1g(footage * taper);
+}
+
+/* footage → whole strands, capped for bushes by size class (Rule 11),
+ * ALWAYS rounded up — never partial strands (Rule 16). */
+function strandsFromFootage(lengthFt, sizeClass, rules) {
+  let strands = Math.ceil(lengthFt / (rules?.strandCoverageFt || 14));
+  if (sizeClass) {
+    const caps = rules?.bushStrandCaps || {};
+    const cap = caps[sizeClass];
+    if (cap) strands = Math.min(strands, cap);
+  }
+  return Math.max(1, strands);
+}
+
+/* Full bush breakdown for display + pricing */
+function bushStrandBreakdown(plant, rules) {
+  const footage = bushLightFootage(plant, rules);
+  const strands = strandsFromFootage(footage, plant.sizeClass, rules);
+  return {
+    footage, strands,
+    spacingIn: spacingInches(plant.spacingKey || "standard", rules),
+    pattern: plant.pattern || "wrap",
+  };
+}
+
+/* Full tree breakdown for display + pricing (trees are NOT capped by bush
+ * size classes; big trees legitimately need many strands) */
+function treeStrandBreakdown(tree, rules) {
+  const footage = treeLightFootage(tree, rules);
+  const strands = Math.max(1, Math.ceil(footage / (rules?.strandCoverageFt || 14)));
+  return {
+    footage, strands,
+    spacingIn: spacingInches(tree.spacingKey || "standard", rules),
+    style: tree.style || "trunk",
+  };
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
-    DEFAULT_PEAK_TABLE, peakHeightForBase, peakSides,
     complexityFromPitch, itemKeyForZone, ROOF_COMPLEXITY, ROOFLINE_ZONE_KINDS,
     satelliteFtPerNorm, satDistFt, computeSatFootprint, calibrationFactorFrom,
+    spacingInches, bushLightFootage, treeLightFootage, strandsFromFootage,
+    bushStrandBreakdown, treeStrandBreakdown, SPACING_KEYS,
   };
 }

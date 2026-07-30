@@ -43,27 +43,42 @@ function initMeasurements() {
   });
 
   populateItemSelect(document.getElementById("meas-add-item"));
-  initPeakCalc();
 }
 
 /* Rescale every AI-estimated row by a factor. Used by BOTH the manual
- * door-height calibration and the automatic satellite calibration. Peak rows
- * rescale their BASE then re-derive, so base and rake length always agree. */
+ * door-height calibration and the automatic satellite calibration.
+ * SAFEGUARD: rows the user has touched (source ≠ "AI Estimated") are never
+ * modified — the tool must not silently change reviewed measurements.
+ * Plant/tree rows scale their DIMENSIONS, then footage re-derives, so the
+ * displayed dimensions and strand math always agree. */
 function applyCalibrationFactor(factor, sourceLabel) {
-  const table = loadPricingConfig().rules.peakHeightTable;
+  const rules = loadPricingConfig().rules;
   for (const r of project.measurements) {
     if (r.source !== "AI Estimated") continue;
-    if (r.baseWidthFt) {
-      const p = peakSides(r.baseWidthFt * factor, table);
-      r.baseWidthFt = p.base;
-      r.value = r.coversBothRakes ? p.total : p.side;
-      r.basis = `${p.base} ft base → peak ${p.height} ft → ${r.coversBothRakes ? "both rakes" : "one rake"} ${r.value} ft (${sourceLabel} calibrated)`;
+    if (r.plant) {
+      r.plant.widthFt = round1c(r.plant.widthFt * factor);
+      r.plant.heightFt = round1c(r.plant.heightFt * factor);
+      r.plant.depthFt = round1c(r.plant.depthFt * factor);
+      r.value = bushStrandBreakdown(r.plant, rules).footage;
+    } else if (r.tree) {
+      for (const k of ["heightFt", "trunkHeightFt", "trunkCircumFt", "branchLenFt", "branchCircumFt", "canopyWidthFt"]) {
+        if (r.tree[k]) r.tree[k] = round1c(r.tree[k] * factor);
+      }
+      r.value = treeStrandBreakdown(r.tree, rules).footage;
     } else {
-      r.value = Math.round(r.value * factor * 10) / 10;
+      r.value = round1c(r.value * factor);
     }
-    r.confidence = Math.min(0.95, (r.confidence ?? 0.5) + 0.15);
+    r.calibratedBy = sourceLabel;
+    // Calibration corrects SCALE, not identification/occlusion uncertainty.
+    // A row the AI was unsure about (shaded, distant, partly hidden) must
+    // KEEP its "verify" flag — so the bump can't cross the 0.6 threshold.
+    const prior = r.confidence ?? 0.5;
+    const bumped = Math.min(0.95, prior + 0.15);
+    r.confidence = prior < 0.6 ? Math.min(bumped, 0.59) : bumped;
   }
 }
+
+const round1c = (v) => Math.round(v * 10) / 10;
 
 function populateItemSelect(sel) {
   const cfg = loadPricingConfig();
@@ -120,62 +135,21 @@ function setRoofComplexity(key) {
   window.dispatchEvent(new CustomEvent("measurements-changed"));
 }
 
-/* ---- Peak calculator: base width → rake lengths ---- */
-function initPeakCalc() {
-  const calc = () => {
-    const base = parseFloat(document.getElementById("peak-base").value);
-    const out = document.getElementById("peak-out");
-    if (!(base > 0)) { out.innerHTML = `<small>Enter the gable's base width.</small>`; return; }
-    const p = peakSides(base, loadPricingConfig().rules.peakHeightTable);
-    out.innerHTML = `
-      <div class="peak-metrics">
-        <div><span>Peak height</span><b>${p.height} ft</b></div>
-        <div><span>Each rake side</span><b class="gold">${p.side} ft</b></div>
-        <div><span>Both sides</span><b class="gold">${p.total} ft</b></div>
-        <div><span>Implied pitch</span><b>${p.pitchPer12}/12</b></div>
-      </div>
-      <small>side = √((base ÷ 2)² + height²) · height from the peak table in the Pricing Guide</small>`;
-  };
-  document.getElementById("peak-base").addEventListener("input", calc);
-  document.getElementById("peak-add").addEventListener("click", () => {
-    const base = parseFloat(document.getElementById("peak-base").value);
-    if (!(base > 0)) { alert("Enter a base width first."); return; }
-    const both = document.getElementById("peak-both").checked;
-    const p = peakSides(base, loadPricingConfig().rules.peakHeightTable);
-    const complexity = project.analysis?.roofComplexity || "mid";
-    project.measurements.push({
-      id: "meas_peak_" + Date.now(),
-      markId: null,
-      zoneKind: "rake",
-      zoneLabel: document.getElementById("peak-label").value.trim() || "gable rake",
-      itemKey: itemKeyForZone("rake", complexity),
-      value: both ? p.total : p.side,
-      baseWidthFt: p.base,
-      coversBothRakes: both,
-      unit: "lf",
-      source: "User Entered",
-      confidence: 1,
-      basis: `${p.base} ft base → peak ${p.height} ft → ${both ? "both rakes" : "one rake"} ${both ? p.total : p.side} ft`,
-    });
-    scheduleSave(); renderMeasurements();
-    window.dispatchEvent(new CustomEvent("measurements-changed"));
-  });
-  calc();
-}
-
+/* Satellite calibration banner — shows WHICH source set the scale, so the
+ * estimator can see why numbers moved (spec §8: show the source used). */
 function renderSatBanner() {
   const host = document.getElementById("sat-banner");
   if (!host) return;
   const sc = project.analysis?.satCheck;
   if (!sc) {
     host.innerHTML = (project.analysis && !project.satellite)
-      ? `<div class="warn-banner">No satellite image — measurements rely on the photo alone. Use "Find" on the address to import satellite for automatic scale calibration, or calibrate with a door height below.</div>`
+      ? `<div class="warn-banner">No satellite image — measurements rely on the front photo alone. Use <b>Find</b> on the address to import satellite for automatic scale calibration, or calibrate with a door height below.</div>`
       : "";
     return;
   }
   host.innerHTML = sc.applied
-    ? `<div class="ok-banner">📐 <b>Satellite-calibrated.</b> Roof front measures <b>${sc.satFrontFt} ft</b> on satellite (exact ft/pixel math); photo estimate was ${sc.aiFrontFt} ft — all AI measurements rescaled ×${sc.factor}.</div>`
-    : `<div class="warn-banner">📐 Satellite check ran but was NOT applied (front ${sc.satFrontFt} ft vs photo ${sc.aiFrontFt} ft, trace confidence ${Math.round((sc.confidence || 0) * 100)}%). Verify key lengths or calibrate with a door height.</div>`;
+    ? `<div class="ok-banner">📐 <b>Satellite-calibrated.</b> Building front measures <b>${sc.satFrontFt} ft</b> on satellite (exact ft/pixel math); front-photo estimate was ${sc.aiFrontFt} ft — AI measurements rescaled ×${sc.factor}.</div>`
+    : `<div class="warn-banner">📐 Satellite check ran but was <b>NOT applied</b> (satellite ${sc.satFrontFt} ft vs photo ${sc.aiFrontFt} ft, trace confidence ${Math.round((sc.confidence || 0) * 100)}%). Verify key lengths or calibrate with a door height.</div>`;
 }
 
 function renderMeasurements() {
@@ -190,24 +164,37 @@ function renderMeasurements() {
     return;
   }
   const cfg = loadPricingConfig();
+  const changed = () => {
+    scheduleSave(); renderMeasurements();
+    window.dispatchEvent(new CustomEvent("measurements-changed"));
+  };
+
   host.innerHTML = `
     <table>
-      <thead><tr><th>Zone</th><th>Item</th><th>Length (ft)</th><th>Source</th><th>Conf.</th><th></th></tr></thead>
+      <thead><tr><th>Area</th><th>Item</th><th>AI est.</th><th>Final (edit)</th><th>Src</th><th>Conf.</th><th></th></tr></thead>
       <tbody>
-      ${rows.map((r, i) => `
-        <tr data-i="${i}">
-          <td>${esc(r.zoneLabel)}${r.sizeClass ? ` <small>(${r.sizeClass})</small>` : ""}${r.baseWidthFt ? ` <small class="peak-tag">peak calc</small>` : ""}</td>
+      ${rows.map((r, i) => {
+        const isPlant = !!r.plant, isTree = !!r.tree;
+        const bd = isPlant ? bushStrandBreakdown(r.plant, cfg.rules)
+          : isTree ? treeStrandBreakdown(r.tree, cfg.rules) : null;
+        return `
+        <tr data-i="${i}" class="${r.confidence < 0.6 ? "low-conf-row" : ""}">
+          <td>${esc(r.zoneLabel)}${r.calibratedBy ? ` <small class="peak-tag">${esc(r.calibratedBy)}-cal</small>` : ""}</td>
           <td>${esc(cfg.items[r.itemKey]?.label || r.itemKey)}</td>
-          <td>${r.baseWidthFt
-            ? `<input type="number" step="0.5" class="meas-base" value="${r.baseWidthFt}" title="Gable base width (ft) — rake length is derived from it"><small>base → <b>${r.value}</b> ft</small>`
+          <td><small>${r.rawAiValue ?? "—"} ${bd ? "ft light" : "ft"}</small></td>
+          <td>${bd
+            ? `<b>${r.manualStrands ?? bd.strands}</b> strand${(r.manualStrands ?? bd.strands) > 1 ? "s" : ""} <small>(${bd.footage} ft @ ${bd.spacingIn}" gap)</small>`
             : `<input type="number" step="0.5" class="meas-val" value="${r.value}">`}</td>
-          <td><select class="meas-src">${SOURCES.map((s) => `<option ${s === r.source ? "selected" : ""}>${s}</option>`).join("")}</select></td>
-          <td><span class="conf ${r.confidence < 0.6 ? "low" : ""}">${Math.round(r.confidence * 100)}%</span></td>
-          <td><button class="meas-del" title="Remove">✕</button></td>
+          <td><small title="Which image this came from">${esc(r.imageSource || "photo")}</small></td>
+          <td><span class="conf ${r.confidence < 0.6 ? "low" : ""}">${Math.round(r.confidence * 100)}%${r.confidence < 0.6 ? " ⚠" : ""}</span></td>
+          <td>${bd ? `<button class="meas-detail" title="Adjust dimensions & spacing">⚙</button>` : ""}<button class="meas-del" title="Remove">✕</button></td>
         </tr>
-        ${r.basis ? `<tr class="basis-row"><td colspan="6"><small>↳ ${esc(r.basis)}</small></td></tr>` : ""}`).join("")}
+        ${r.basis ? `<tr class="basis-row"><td colspan="7"><small>↳ ${esc(r.basis)}</small></td></tr>` : ""}
+        ${bd ? `<tr class="detail-row" data-detail="${i}" style="display:none"><td colspan="7">${isPlant ? plantEditor(r, i) : treeEditor(r, i)}</td></tr>` : ""}`;
+      }).join("")}
       </tbody>
     </table>`;
+
   host.querySelectorAll("tr[data-i]").forEach((tr) => {
     const i = +tr.dataset.i;
     const valInput = tr.querySelector(".meas-val");
@@ -215,32 +202,96 @@ function renderMeasurements() {
       rows[i].value = parseFloat(e.target.value) || 0;
       rows[i].source = "User Entered";
       rows[i].confidence = 1;
-      scheduleSave(); renderMeasurements();
-      window.dispatchEvent(new CustomEvent("measurements-changed"));
+      changed();
     });
-    // Peak rows: editing the BASE re-derives the rake length
-    const baseInput = tr.querySelector(".meas-base");
-    if (baseInput) baseInput.addEventListener("change", (e) => {
-      const base = parseFloat(e.target.value) || 0;
-      const p = peakSides(base, loadPricingConfig().rules.peakHeightTable);
-      rows[i].baseWidthFt = p.base;
-      rows[i].value = rows[i].coversBothRakes ? p.total : p.side;
-      rows[i].basis = `${p.base} ft base → peak ${p.height} ft → ${rows[i].coversBothRakes ? "both rakes" : "one rake"} ${rows[i].value} ft`;
-      rows[i].source = "User Entered";
-      rows[i].confidence = 1;
-      scheduleSave(); renderMeasurements();
-      window.dispatchEvent(new CustomEvent("measurements-changed"));
-    });
-    tr.querySelector(".meas-src").addEventListener("change", (e) => {
-      rows[i].source = e.target.value; scheduleSave();
-      window.dispatchEvent(new CustomEvent("measurements-changed"));
+    const detailBtn = tr.querySelector(".meas-detail");
+    if (detailBtn) detailBtn.addEventListener("click", () => {
+      const dr = host.querySelector(`tr[data-detail="${i}"]`);
+      if (dr) dr.style.display = dr.style.display === "none" ? "" : "none";
     });
     tr.querySelector(".meas-del").addEventListener("click", () => {
-      rows.splice(i, 1); scheduleSave(); renderMeasurements();
-      window.dispatchEvent(new CustomEvent("measurements-changed"));
+      rows.splice(i, 1); changed();
     });
   });
+
+  // plant/tree editors: any change re-derives footage + strands immediately
+  host.querySelectorAll("[data-pfield]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const i = +el.dataset.row, f = el.dataset.pfield;
+      const r = rows[i];
+      const obj = r.plant || r.tree;
+      if (["pattern", "style", "spacingKey", "sizeClass", "density"].includes(f)) obj[f] = el.value;
+      else obj[f] = parseFloat(el.value) || null;
+      r.value = r.plant ? bushStrandBreakdown(r.plant, cfg.rules).footage
+                        : treeStrandBreakdown(r.tree, cfg.rules).footage;
+      r.source = "User Entered";
+      r.confidence = 1;
+      r.manualStrands = null;   // dimension edits re-derive; explicit strand override below wins
+      changed();
+    })
+  );
+  host.querySelectorAll("[data-strandoverride]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const i = +el.dataset.strandoverride;
+      const v = parseInt(el.value, 10);
+      rows[i].manualStrands = Number.isInteger(v) && v > 0 ? v : null;
+      rows[i].source = "User Entered";
+      changed();
+    })
+  );
   renderAnalysisWarnings();
+}
+
+/* Bush/shrub editor: every dimension + pattern + spacing, per the spec */
+function plantEditor(r, i) {
+  const p = r.plant;
+  const numF = (f, label, val) => `<label>${label} <input type="number" step="0.5" data-pfield="${f}" data-row="${i}" value="${val ?? ""}" style="width:70px"></label>`;
+  return `<div class="pt-editor">
+    ${numF("widthFt", "Width ft", p.widthFt)}
+    ${numF("heightFt", "Height ft", p.heightFt)}
+    ${numF("depthFt", "Depth ft", p.depthFt)}
+    <label>Pattern <select data-pfield="pattern" data-row="${i}">
+      <option value="wrap" ${p.pattern === "wrap" ? "selected" : ""}>Wrap around</option>
+      <option value="surface" ${p.pattern === "surface" ? "selected" : ""}>Surface coverage</option>
+      <option value="branch" ${p.pattern === "branch" ? "selected" : ""}>Branch style (dense)</option>
+    </select></label>
+    <label>Gap <select data-pfield="spacingKey" data-row="${i}">
+      <option value="tight" ${p.spacingKey === "tight" ? "selected" : ""}>Tight</option>
+      <option value="standard" ${p.spacingKey === "standard" ? "selected" : ""}>Standard</option>
+      <option value="wide" ${p.spacingKey === "wide" ? "selected" : ""}>Wide</option>
+    </select></label>
+    <label>Size <select data-pfield="sizeClass" data-row="${i}">
+      ${["small", "medium", "large", "xl"].map((s) => `<option ${p.sizeClass === s ? "selected" : ""}>${s}</option>`).join("")}
+    </select></label>
+    <label>Strand override <input type="number" min="1" step="1" data-strandoverride="${i}" value="${r.manualStrands ?? ""}" placeholder="auto" style="width:64px"></label>
+  </div>`;
+}
+
+/* Tree editor: trunk/branch dimensions + style + spacing, per the spec */
+function treeEditor(r, i) {
+  const t = r.tree;
+  const numF = (f, label, val) => `<label>${label} <input type="number" step="0.5" data-pfield="${f}" data-row="${i}" value="${val ?? ""}" placeholder="auto" style="width:70px"></label>`;
+  return `<div class="pt-editor">
+    ${numF("heightFt", "Tree ht ft", t.heightFt)}
+    ${numF("trunkHeightFt", "Trunk ht ft", t.trunkHeightFt)}
+    ${numF("trunkCircumFt", "Trunk circ ft", t.trunkCircumFt)}
+    ${numF("branchCount", "# branches", t.branchCount)}
+    ${numF("branchLenFt", "Branch len ft", t.branchLenFt)}
+    ${numF("branchCircumFt", "Branch circ ft", t.branchCircumFt)}
+    <label>Style <select data-pfield="style" data-row="${i}">
+      <option value="trunk" ${t.style === "trunk" ? "selected" : ""}>Trunk wrap</option>
+      <option value="branch" ${t.style === "branch" ? "selected" : ""}>Branch wrap</option>
+      <option value="trunk_branch" ${t.style === "trunk_branch" ? "selected" : ""}>Trunk + branches</option>
+      <option value="canopy" ${t.style === "canopy" ? "selected" : ""}>Canopy / net</option>
+      <option value="spiral" ${t.style === "spiral" ? "selected" : ""}>Spiral / candy-cane</option>
+    </select></label>
+    <label>Gap <select data-pfield="spacingKey" data-row="${i}">
+      <option value="tight" ${t.spacingKey === "tight" ? "selected" : ""}>Tight</option>
+      <option value="standard" ${t.spacingKey === "standard" ? "selected" : ""}>Standard</option>
+      <option value="wide" ${t.spacingKey === "wide" ? "selected" : ""}>Wide</option>
+    </select></label>
+    <label>Strand override <input type="number" min="1" step="1" data-strandoverride="${i}" value="${r.manualStrands ?? ""}" placeholder="auto" style="width:64px"></label>
+  </div>`;
 }
 
 function renderAnalysisWarnings() {

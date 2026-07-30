@@ -29,16 +29,11 @@ const DEFAULT_PRICING = {
       swirlSmallTree: 6, swirlLargeTreeMax: 24, branch: 6, bushFillRows: 3,
       taperFactor: 0.8,
     },
-    /* Peak calculator table — company rule of thumb for gable height from
-     * base width. Editable in the Pricing Guide. maxBase:null = "larger". */
-    peakHeightTable: [
-      { maxBase: 8,    height: 2 },
-      { maxBase: 15,   height: 5 },
-      { maxBase: 25,   height: 7 },
-      { maxBase: 35,   height: 10 },
-      { maxBase: 45,   height: 13 },
-      { maxBase: null, height: 17 },
-    ],
+    /* Wrap spacing presets (inches between wraps / light rows). The selected
+     * gap directly drives strand counts: tighter = more lights. */
+    spacingTightIn: 4,
+    spacingStandardIn: 6,
+    spacingWideIn: 10,
   },
   /* Every line item reads its rate from here at calculation time.
    * rate:null means "office must set a price" — the engine REFUSES to
