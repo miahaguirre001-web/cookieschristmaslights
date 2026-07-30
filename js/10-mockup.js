@@ -117,11 +117,18 @@ function buildMockupPrompt() {
   const geometry = marks.map((m) => describeMarkGeometry(m)).join("\n");
   const notes = (project.analysis?.installNotes || []).map((n) => "- " + n).join("\n");
 
+  const tb = targetBounds();
+  const targetLine = tb
+    ? `THE CUSTOMER'S HOUSE is the building inside the region x ${(tb.x * 100).toFixed(0)}%–${((tb.x + tb.w) * 100).toFixed(0)}%, y ${(tb.y * 100).toFixed(0)}%–${((tb.y + tb.h) * 100).toFixed(0)}% of the frame. Light ONLY that building. It may sit at the edge of the frame and may not be the largest or most central house in the photo. Every other house in the image must remain completely UNLIT and otherwise unchanged — do not add a single bulb to a neighbouring property.`
+    : `The target is the house the markup is drawn on — every other house in the image must remain completely UNLIT and unchanged.`;
+
   return `THIS IS A PHOTO EDIT of the exact property in the input image — NOT a new render.
 
 Input image 1 is the property at night. Input image 2 is the identical image with the installation plan drawn on it. The colored marks in image 2 are the MASTER MAP: they are the complete and only definition of where lights go.
 
-ONLY TWO THINGS MAY CHANGE from image 1: (a) Christmas lights are added exactly where marked, (b) it is night. Everything else is locked: the count of houses, garages, stories, windows and doors must exactly match the input; driveways, side yards and empty space stay exactly as-is; add NO new structures, posts, arbors, plants, or decorations of any kind anywhere. The target is the house the markup is drawn on — ignore neighboring houses entirely.
+${targetLine}
+
+ONLY TWO THINGS MAY CHANGE from image 1: (a) Christmas lights are added exactly where marked, (b) it is night. Everything else is locked: the count of houses, garages, stories, windows and doors must exactly match the input; driveways, side yards and empty space stay exactly as-is; add NO new structures, posts, arbors, plants, or decorations of any kind anywhere.
 
 PLACEMENT — from the marks EXCLUSIVELY:
 ${geometry}
@@ -145,7 +152,11 @@ RENDERING QUALITY — non-negotiable:
 function buildQAPrompt() {
   const marks = project.marks.filter((m) => m.included !== false);
   const decorCount = marks.filter((m) => m.kind === "addon" && !ADDONS.find((a) => a.id === m.addonId)?.isWrapDesign).length;
-  return `Compare the ORIGINAL property photo (image 1) with the GENERATED Christmas-light mock-up (image 2). Check strictly:
+  const tb = targetBounds();
+  const targetCheck = tb
+    ? `\n0. correct_house: lights must appear ONLY on the building inside x ${(tb.x * 100).toFixed(0)}%–${((tb.x + tb.w) * 100).toFixed(0)}%, y ${(tb.y * 100).toFixed(0)}%–${((tb.y + tb.h) * 100).toFixed(0)}%. If ANY neighbouring house has lights on it, FAIL with check "correct_house" — this is the most important check.`
+    : "";
+  return `Compare the ORIGINAL property photo (image 1) with the GENERATED Christmas-light mock-up (image 2). Check strictly:${targetCheck}
 1. lights_only_where_marked: lights appear ONLY along these marked zones: ${marks.map((m) => m.zoneLabel).join(", ") || "none"} — flag lights on any unmarked area (e.g. garage if unmarked).
 2. decoration_count: exactly ${decorCount} freestanding decorations (wreaths/bows/deer/garland). Pillar/tree/bush WRAPS are integral lighting — do NOT count them as decorations.
 3. night: the scene is clearly night, not daylight or dusk.

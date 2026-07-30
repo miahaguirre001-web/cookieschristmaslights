@@ -24,7 +24,12 @@ Typical plausible ranges — if your value falls outside, treat it as a SCALING 
 function buildAnalysisPrompt() {
   const marks = project.marks.filter((m) => m.included !== false);
   const geometry = marks.map((m) => describeMarkGeometry(m)).join("\n");
+  const tb = targetBounds();
+  const targetLine = tb
+    ? `\nTHE CUSTOMER'S HOUSE is the building inside x ${(tb.x * 100).toFixed(0)}%–${((tb.x + tb.w) * 100).toFixed(0)}%, y ${(tb.y * 100).toFixed(0)}%–${((tb.y + tb.h) * 100).toFixed(0)}% (outlined in yellow; everything else dimmed). Measure ONLY that building — never a neighbouring house, even if it is larger or more central. On the satellite image, the customer's building is the one at the centre of the frame.\n`
+    : "";
   return `You are estimating a Christmas-light installation from ONE street-level photo with the estimator's markup drawn on it.
+${targetLine}
 
 MARKED DESIGN (marker colors: red=C9 roofline, blue=C7/windows, green=mini lights, purple=multi-color, pink=icicle; dashed rectangles=bush/shrub fill areas; yellow boxes=add-on decorations):
 ${geometry}
@@ -115,6 +120,8 @@ async function runAnalysis(onStatus = () => {}) {
 
   // Send the ORIGINAL photo (full frame, no crop — Rule 10) + markup preview
   // + the SATELLITE image when available (dual-source measurement).
+  // The markup snapshot includes the target outline + dimming, so the model
+  // sees which building it is measuring, not just reads coordinates for it.
   const markupImage = renderHumanMarkupSnapshot();
   const content = [
     { type: "text", text: "Image 1: original property photo. Image 2: same photo with estimator markup." + (project.satellite ? " Image 3: satellite/top-down view of the same property (use it for real dimensions)." : "") },

@@ -147,6 +147,7 @@ function renderLightTypes() {
 }
 
 const TOOLS = [
+  { id: "target", label: "🎯 Target house", hint: "Circle the customer's house so the AI ignores the neighbours" },
   { id: "straight", label: "Straight", hint: "Click-drag A→B — rooflines, ridges, walkways" },
   { id: "curve",    label: "Curve",    hint: "A→B with a soft wave — draped runs" },
   { id: "bushes",   label: "Bushes",   hint: "Drag a rectangle — everything inside gets lit" },
@@ -230,12 +231,24 @@ function onPointerDown(e) {
     return;
   }
 
+  // Freehand lasso around the target building
+  if (Canvas.tool === "target") {
+    Canvas.lasso = [p];
+    return;
+  }
+
   Canvas.drag = { start: p, cur: p };
 }
 
 function onPointerMove(e) {
   if (!Canvas.img) return;
   const p = canvasPoint(e);
+  if (Canvas.lasso) {
+    const last = Canvas.lasso[Canvas.lasso.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) > 0.004) Canvas.lasso.push(p);
+    redraw();
+    return;
+  }
   if (Canvas.addonDrag) {
     const d = Canvas.addonDrag;
     const dx = p.x - d.start.x, dy = p.y - d.start.y;
@@ -253,6 +266,22 @@ function onPointerMove(e) {
 }
 
 function onPointerUp() {
+  if (Canvas.lasso) {
+    const pts = Canvas.lasso;
+    Canvas.lasso = null;
+    if (pts.length >= 6) {
+      project.targetRegion = { points: pts };
+      // Anything already detected outside the target is the neighbour's house
+      const before = project.marks.length;
+      project.marks = project.marks.filter((m) => m.source !== "detected" || markInTarget(m));
+      const dropped = before - project.marks.length;
+      touchMarks();
+      window.dispatchEvent(new CustomEvent("target-changed", { detail: { dropped } }));
+    } else {
+      redraw();
+    }
+    return;
+  }
   if (Canvas.addonDrag) { Canvas.addonDrag = null; touchMarks(); return; }
   if (!Canvas.drag) return;
   const { start, cur } = Canvas.drag;
@@ -333,6 +362,62 @@ function nearestMark(p, tol) {
   return best;
 }
 
+/* ---- target region helpers ----
+ * The lasso defines WHICH BUILDING is the customer's. Everything the AI does
+ * is constrained to it, which is what stops a neighbour's roofline being
+ * detected, measured, or lit in the mock-up. */
+
+function pointInPolygon(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    const hit = (yi > p.y) !== (yj > p.y) &&
+      p.x < ((xj - xi) * (p.y - yi)) / ((yj - yi) || 1e-12) + xi;
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+
+/* Bounding box of the target, as fractions — used in AI prompts */
+function targetBounds() {
+  const pts = project.targetRegion?.points;
+  if (!pts?.length) return null;
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  return {
+    x: Math.min(...xs), y: Math.min(...ys),
+    w: Math.max(...xs) - Math.min(...xs),
+    h: Math.max(...ys) - Math.min(...ys),
+  };
+}
+
+/* Is this mark on the target building? Uses the mark's representative point,
+ * with a small tolerance so an eave that runs just past the lasso still counts. */
+function markInTarget(m, tol = 0.03) {
+  const pts = project.targetRegion?.points;
+  if (!pts?.length) return true;              // no target set → nothing filtered
+  const probe = [];
+  if (m.kind === "line" || m.kind === "curve") {
+    probe.push(m.a, m.b, { x: (m.a.x + m.b.x) / 2, y: (m.a.y + m.b.y) / 2 });
+  } else if (m.rect) {
+    const r = m.rect;
+    probe.push({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, { x: r.x, y: r.y },
+      { x: r.x + r.w, y: r.y + r.h });
+  }
+  if (!probe.length) return true;
+  // inside if any probe point is in the polygon, or near it via the bbox
+  if (probe.some((q) => pointInPolygon(q, pts))) return true;
+  const b = targetBounds();
+  return probe.some((q) =>
+    q.x >= b.x - tol && q.x <= b.x + b.w + tol &&
+    q.y >= b.y - tol && q.y <= b.y + b.h + tol);
+}
+
+function clearTargetRegion() {
+  project.targetRegion = null;
+  touchMarks();
+  window.dispatchEvent(new CustomEvent("target-changed", { detail: { dropped: 0 } }));
+}
+
 function pointToSegment(p, a, b) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len2 = dx * dx + dy * dy;
@@ -368,6 +453,7 @@ function redraw() {
   // Badge placement bookkeeping — prevents the wall of overlapping
   // "50% verify" chips when detection returns many candidates.
   Canvas._badges = [];
+  drawTargetRegion(ctx, W, H);
   for (const m of project.marks) drawMark(ctx, m, W, H);
 
   // in-progress drag ghost
@@ -388,6 +474,49 @@ function redraw() {
     }
     ctx.restore();
   }
+}
+
+/* Target lasso: bright outline + dimming of everything outside it, so the
+ * estimator can see at a glance which building the tool is working on. */
+function drawTargetRegion(ctx, W, H) {
+  const pts = Canvas.lasso || project.targetRegion?.points;
+  if (!pts || pts.length < 2) return;
+  const live = !!Canvas.lasso;
+
+  const path = new Path2D();
+  pts.forEach((p, i) => (i ? path.lineTo(p.x * W, p.y * H) : path.moveTo(p.x * W, p.y * H)));
+  if (!live) path.closePath();
+
+  if (!live) {
+    // dim everything outside the target
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.clip(path, "evenodd");
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.strokeStyle = "#ffe600";
+  ctx.lineWidth = Math.max(3, W / 220);
+  ctx.setLineDash(live ? [10, 6] : []);
+  ctx.stroke(path);
+  ctx.setLineDash([]);
+  if (!live) {
+    const b = targetBounds();
+    ctx.fillStyle = "#ffe600";
+    ctx.font = `bold ${Math.max(12, W / 70)}px system-ui`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    const label = "TARGET HOUSE";
+    ctx.strokeStyle = "rgba(0,0,0,.8)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(label, b.x * W, Math.max(16, b.y * H - 6));
+    ctx.fillText(label, b.x * W, Math.max(16, b.y * H - 6));
+  }
+  ctx.restore();
 }
 
 function markerColor(lightType) {

@@ -76,6 +76,10 @@ function newProject() {
     satelliteZoom: 20,    // which zoom the satellite was fetched at (scale math)
     altViews: [],         // extra Street View headings for depth cues
     footprint: null,      // traced satellite footprint (edges usable directly)
+    targetRegion: null,   // {points:[{x,y}...]} lasso around THE target house.
+                          // Without this the AI picks the most central building,
+                          // which is the wrong one whenever the target sits at
+                          // the edge of the frame.
     photoSource: null,    // 'streetview' | 'upload'
     colorScheme: "red_green",
     customSequence: [],   // ordered swatch ids, max 4

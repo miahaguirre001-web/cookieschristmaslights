@@ -46,7 +46,8 @@ AI calls and map imports need the functions.
 
 ## Using the tool (estimator workflow)
 
-**The fast path — Auto-Estimate.** Enter the address, hit **Find**, tick which
+**The fast path — Auto-Estimate.** Enter the address, hit **Find**,
+**circle the customer's house** on the photo, tick which
 zones should be lit (roofline is on by default), and press
 **⚡ Run Auto-Estimate**. One click runs the whole chain:
 
@@ -57,6 +58,30 @@ detect → snap lines to real edges → AI verifies placement
 
 Then you glance at the result and send it. The manual tools stay underneath
 purely for corrections when automation misses.
+
+### Circle the house first (🎯 Target house)
+
+Street View often frames two or three houses, and the customer's may sit at
+the *edge* of the shot while a neighbour sits dead centre. Without being told
+which building is the target, a vision model reliably picks the most
+prominent one — the wrong one.
+
+So the first step is to lasso the customer's house with the **🎯 Target
+house** tool. Everything outside the loop is dimmed on screen, and that
+outline is then enforced three ways:
+
+- the outline is **drawn onto the image** sent to the AI, so it can see the
+  target rather than just read coordinates for it;
+- every prompt (detection, measurement, mock-up, QA) states the target region
+  and explicitly says the target may not be the largest or most central house;
+- any detected feature that lands off the target is **physically removed**
+  client-side, so a stray neighbour roofline can never reach the price sheet
+  or the mock-up.
+
+The mock-up QA also fails outright if lights appear on a neighbouring house.
+The target is optional — skip it on a clean single-house shot — but on any
+photo with more than one building it is the difference between a correct
+estimate and the wrong roof.
 
 ### How detection accuracy is handled
 

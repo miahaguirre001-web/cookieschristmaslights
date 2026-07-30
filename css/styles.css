@@ -213,6 +213,17 @@ tr.total-row td { font-size: 16px; border-top: 2px solid var(--line); }
 .cx small { font-weight: 400; }
 .cx.sel { border-color: var(--accent); background: rgba(229,57,53,.12); }
 
+/* target house callout */
+.target-callout { margin: 10px 0; }
+.target-unset, .target-set {
+  border-radius: 8px; padding: 10px 12px; font-size: 14px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.target-unset { background: rgba(255,230,0,.12); border: 1px solid #ffe600; color: #ffe600; }
+.target-set { background: rgba(76,175,80,.12); border: 1px solid var(--ok); color: var(--ok); }
+.tool[data-id="target"] { border-color: #ffe600; }
+.tool[data-id="target"].sel { background: #ffe600; color: #000; }
+
 /* satellite ruler */
 #ruler-canvas {
   width: 100%; max-width: 640px; display: block; margin: 10px 0;

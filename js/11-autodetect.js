@@ -20,11 +20,19 @@
  * ========================================================================= */
 "use strict";
 
-const DETECT_PROMPT = `Analyze this street-level photo of a house and return its lightable geometry for a Christmas-light install.
+function detectPrompt() {
+  const b = targetBounds();
+  const targetClause = b
+    ? `THE TARGET BUILDING: the estimator has outlined the customer's house with a bright YELLOW line, and everything outside it is dimmed. The target sits inside the box x ${(b.x * 100).toFixed(0)}%–${((b.x + b.w) * 100).toFixed(0)}%, y ${(b.y * 100).toFixed(0)}%–${((b.y + b.h) * 100).toFixed(0)}%. Detect features ONLY on that building. It may be partly cut off at the edge of the frame, and it may NOT be the largest or most central house in the photo — the yellow outline is the only thing that decides which building is the customer's. Return NOTHING for any other house, even if a neighbouring house is bigger, closer to the centre, or more clearly visible.`
+    : `THE TARGET BUILDING: no outline was provided. Use the house that occupies the foreground centre of the frame, and ignore neighbouring houses. If two or more houses are equally plausible, set overallConfidence below 0.4 and say so — do not guess.`;
+
+  return `Analyze this street-level photo and return the lightable geometry of ONE specific house for a Christmas-light install.
+
+${targetClause}
 
 COORDINATES: the image has a labeled reference grid drawn on it — thin cyan lines every 10% with x/y percentage labels on the edges. Use the grid to report PRECISE normalized coordinates (0–1). Before writing each coordinate, locate the feature relative to the nearest grid lines (e.g. "ridge sits just below the y=0.30 line ≈ 0.31"). Trace the ACTUAL visible edges — a roofline point must sit ON the roof edge in the photo, never above the roof or in the sky.
 
-Target the main house in the frame (largest/most central); identify the garage separately; IGNORE neighboring houses entirely.
+Identify the target's garage separately.
 
 Return ONLY JSON:
 {
@@ -36,10 +44,11 @@ Return ONLY JSON:
 }
 Rules: polylines follow perspective (a receding eave slopes in image space — trace what you SEE). Bush/shrub/tree boxes must fit TIGHTLY around the actual plant, not the whole garden bed. Estimate heightFt/widthFt for plants. Garage rooflines use featureType "garage_eave" (excluded by default). Labels under 4 words. If trees or shadows hide an edge, lower that feature's confidence honestly rather than guessing confidently.
 SPEED IS CRITICAL: at most 14 features, polylines at most 4 points each, single-line compact JSON, no whitespace, no explanations.`;
+}
 
 /* ---------- 1. grid-anchored detection ---------- */
 
-function makeGridReference(photoDataUrl) {
+function makeGridReference(photoDataUrl, withTarget = false) {
   return new Promise((res) => {
     const img = new Image();
     img.onload = () => {
@@ -48,6 +57,27 @@ function makeGridReference(photoDataUrl) {
       const ctx = c.getContext("2d");
       ctx.drawImage(img, 0, 0);
       const W = c.width, H = c.height;
+
+      // Draw the target outline FIRST so the model sees which building is
+      // the customer's — the single biggest cause of wrong-house detection.
+      const tp = withTarget ? project.targetRegion?.points : null;
+      if (tp && tp.length > 2) {
+        const path = new Path2D();
+        tp.forEach((p, i) => (i ? path.lineTo(p.x * W, p.y * H) : path.moveTo(p.x * W, p.y * H)));
+        path.closePath();
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H);
+        ctx.clip(path, "evenodd");
+        ctx.fillStyle = "rgba(0,0,0,0.55)";   // dim everything that is NOT the target
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+        ctx.save();
+        ctx.strokeStyle = "#ffe600";
+        ctx.lineWidth = Math.max(3, W / 200);
+        ctx.stroke(path);
+        ctx.restore();
+      }
       ctx.strokeStyle = "rgba(0, 229, 255, 0.55)";
       ctx.fillStyle = "rgba(0, 229, 255, 0.95)";
       ctx.lineWidth = Math.max(1, W / 900);
@@ -66,16 +96,30 @@ function makeGridReference(photoDataUrl) {
 }
 
 async function runDetection(onStatus = () => {}) {
-  const gridImage = await makeGridReference(project.photo);
+  // The grid image also carries the target outline, so the model can SEE
+  // which building it must work on, not just read coordinates for it.
+  const gridImage = await makeGridReference(project.photo, true);
   const text = await callClaude({
     system: "You are a precise architectural feature detector. Respond with valid JSON only.",
-    messages: [{ role: "user", content: [imageBlock(gridImage), { type: "text", text: DETECT_PROMPT }] }],
+    messages: [{ role: "user", content: [imageBlock(gridImage), { type: "text", text: detectPrompt() }] }],
     maxTokens: 1600,        // latency throttle — must fit Netlify's 30s window
     model: FAST_MODEL,      // structured looking, not reasoning — fast model
   }, onStatus);
   const parsed = validateShape(extractJSON(text), { features: "array", overallConfidence: "number" }, "Detection");
   const added = applyDetection(parsed);
-  return { parsed, added };
+  const dropped = dropDetectionsOutsideTarget();
+  return { parsed, added: added - dropped, dropped };
+}
+
+/* Belt and braces: even with the outline in the prompt, physically remove any
+ * detection that lands off the target building. */
+function dropDetectionsOutsideTarget() {
+  if (!project.targetRegion?.points?.length) return 0;
+  const before = project.marks.length;
+  project.marks = project.marks.filter((m) => m.source !== "detected" || markInTarget(m));
+  const dropped = before - project.marks.length;
+  if (dropped) touchMarks();
+  return dropped;
 }
 
 /* ---------- 2. client-side edge snapping (Sobel) ---------- */
@@ -152,6 +196,8 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 const REFINE_PROMPT = `Image 1 is a house photo with detected light-placement lines drawn on it (bright red lines, each labeled [mark_xx]). These lines are SUPPOSED to sit exactly ON the physical edges they trace (rooflines on roof edges, walkway lines on walkway edges).
 
+If a bright YELLOW outline is present, it marks the customer's house and everything outside it is dimmed. ANY red line that is not on the outlined building belongs to a neighbour's house — put it in "remove", no matter how well it traces that other roof.
+
 Inspect each labeled line. For any line that is offset from its real edge, floating in the sky, on a tree, or on the wrong feature, output corrected endpoints (normalized 0–1, using the cyan 10% reference grid). For lines that are already correct, list them in "ok". For lines that should not exist at all (nothing lightable there), list them in "remove".
 
 Return ONLY single-line compact JSON, no explanations:
@@ -163,7 +209,7 @@ async function refineDetectionWithAI(onStatus = () => {}) {
 
   // render current lines on a grid copy so the model judges the overlay
   const overlay = await new Promise((res) => {
-    makeGridReference(project.photo).then((gridUrl) => {
+    makeGridReference(project.photo, true).then((gridUrl) => {
       const img = new Image();
       img.onload = () => {
         const c = document.createElement("canvas");
@@ -361,6 +407,19 @@ function initAutoDetect() {
   zoneHost.innerHTML = Object.entries(AUTO_ZONE_GROUPS).map(([k, g]) =>
     `<label class="auto-zone"><input type="checkbox" value="${k}" ${g.default ? "checked" : ""}> ${g.label}</label>`).join("");
 
+  renderTargetStatus();
+  window.addEventListener("target-changed", (e) => {
+    renderTargetStatus();
+    renderDetectionPanel();
+    const dropped = e.detail?.dropped || 0;
+    if (dropped) {
+      setStatus(document.getElementById("detect-status"),
+        `Removed ${dropped} detected item${dropped > 1 ? "s" : ""} that were on another house.`, "ok");
+    }
+  });
+  window.addEventListener("project-loaded", renderTargetStatus);
+  window.addEventListener("photo-changed", renderTargetStatus);
+
   const autoBtn = document.getElementById("btn-auto-estimate");
   const autoStatus = document.getElementById("auto-status");
   autoBtn.addEventListener("click", () => withBusy(autoBtn, async () => {
@@ -408,6 +467,30 @@ function initAutoDetect() {
   });
 
   window.addEventListener("project-loaded", renderDetectionPanel);
+}
+
+/* The target callout — the step that decides WHICH house gets lit. */
+function renderTargetStatus() {
+  const host = document.getElementById("target-status");
+  if (!host) return;
+  const set = !!project.targetRegion?.points?.length;
+  host.innerHTML = set
+    ? `<div class="target-set">🎯 <b>Target house set.</b> Detection, measurements and the mock-up are limited to the outlined building.
+        <button id="target-redo" class="link-btn">redraw</button> ·
+        <button id="target-clear" class="link-btn">clear</button></div>`
+    : `<div class="target-unset">🎯 <b>Circle the customer's house first.</b> If more than one house is visible, the AI can pick the wrong one.
+        <button id="target-draw" class="primary">Circle the house</button></div>`;
+
+  const draw = document.getElementById("target-draw") || document.getElementById("target-redo");
+  if (draw) draw.addEventListener("click", () => {
+    if (!project.photo) { alert("Import or upload a photo first."); return; }
+    Canvas.tool = "target";
+    renderToolButtons();
+    scrollToSection("design-section");
+    setStatus(document.getElementById("auto-status"), "Draw a loop around the customer's house on the photo below.", "");
+  });
+  const clear = document.getElementById("target-clear");
+  if (clear) clear.addEventListener("click", clearTargetRegion);
 }
 
 function renderDetectionPanel() {
